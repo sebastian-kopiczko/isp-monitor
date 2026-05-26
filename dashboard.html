@@ -95,6 +95,10 @@ footer{text-align:center;color:var(--muted);font-size:11px;padding:10px}
     </div>
     <div class="filters">
       <div class="filter-group">
+        <label>ISP</label>
+        <select id="f-isp" multiple size="1"><option value="__all__" selected>all</option></select>
+      </div>
+      <div class="filter-group">
         <label>label</label>
         <select id="f-label" multiple size="1"><option value="__all__" selected>all</option></select>
       </div>
@@ -121,6 +125,13 @@ footer{text-align:center;color:var(--muted);font-size:11px;padding:10px}
       <div class="refresh-status"><span class="dot" id="status-dot"></span><span id="status-text">loading…</span></div>
     </div>
   </header>
+
+  <section id="isp-compare-section" style="display:none;margin-bottom:var(--gap)">
+    <div class="chart-card" style="padding:14px 18px">
+      <h3>ISP comparison <span class="note" id="isp-compare-note"></span></h3>
+      <div id="isp-compare-grid" style="display:grid;gap:var(--gap)"></div>
+    </div>
+  </section>
 
   <section class="kpi-row" id="kpi-row"></section>
 
@@ -164,10 +175,43 @@ const COLORS = ['#4C72B0','#DD8452','#55A868','#C44E52','#8172B3','#937860','#DA
 const WORKLOADS = ['claude','streaming_hd','streaming_4k','gaming','video_calls'];
 const TARGETS   = ['anthropic','pl_local','eu_hub','us_east'];
 
+// Per-ISP color families (label convention: "<isp>-<medium>", e.g. play-eth).
+// First slot = ethernet/primary, second = wifi/secondary, third+ = fallback.
+const ISP_PALETTES = {
+  play:    ['#1f4e8c', '#5b8ec9'],   // blues
+  netia:   ['#c45e1d', '#f0a062'],   // oranges
+  orange:  ['#a06800', '#e0a040'],   // ambers
+  tmobile: ['#a01070', '#d56db5'],   // magentas
+  upc:     ['#0a7a5d', '#5dbf9a'],   // teals
+  vectra:  ['#6f42c1', '#a78bea'],   // purples
+};
+const MEDIUM_SLOTS = { eth:0, ethernet:0, wired:0, wifi:1, wireless:1 };
+const FALLBACK_PALETTE = COLORS;
+
+function getIsp(label) {
+  if (!label) return 'unknown';
+  const i = label.indexOf('-');
+  return (i === -1 ? label : label.slice(0, i)).toLowerCase();
+}
+function getMedium(label) {
+  if (!label) return '';
+  const i = label.indexOf('-');
+  return i === -1 ? '' : label.slice(i + 1).toLowerCase();
+}
+function colorFor(label, fallbackIdx) {
+  const isp = getIsp(label);
+  const pal = ISP_PALETTES[isp] || FALLBACK_PALETTE;
+  const slot = MEDIUM_SLOTS[getMedium(label)];
+  if (slot != null && pal[slot]) return pal[slot];
+  return pal[fallbackIdx % pal.length];
+}
+
 const state = {
   runs: [],
   labels: [],
+  isps: [],
   selectedLabels: new Set(['__all__']),
+  selectedIsps:   new Set(['__all__']),
   sinceHours: 24,
   refreshSec: 30,
   charts: {},
@@ -213,13 +257,25 @@ setInterval(() => {
 function selectedRuns() {
   const now = Date.now();
   const cutoff = state.sinceHours > 0 ? now - state.sinceHours*3600*1000 : 0;
-  const all = state.selectedLabels.has('__all__');
+  const allLab = state.selectedLabels.has('__all__');
+  const allIsp = state.selectedIsps.has('__all__');
   return state.runs.filter(r => {
-    if (!all && !state.selectedLabels.has(r.label)) return false;
+    if (!allIsp && !state.selectedIsps.has(getIsp(r.label))) return false;
+    if (!allLab && !state.selectedLabels.has(r.label)) return false;
     const t = new Date(r.ts).getTime();
     if (cutoff && t < cutoff) return false;
     return true;
   });
+}
+
+function groupByIsp(runs) {
+  const m = new Map();
+  for (const r of runs) {
+    const isp = getIsp(r.label);
+    if (!m.has(isp)) m.set(isp, []);
+    m.get(isp).push(r);
+  }
+  return m;
 }
 
 function groupByLabel(runs) {
@@ -230,6 +286,61 @@ function groupByLabel(runs) {
   }
   for (const arr of m.values()) arr.sort((a,b) => new Date(a.ts) - new Date(b.ts));
   return m;
+}
+
+// ---------- ISP comparison ----------
+function renderIspComparison(runs) {
+  const section = document.getElementById('isp-compare-section');
+  const note = document.getElementById('isp-compare-note');
+  const grid = document.getElementById('isp-compare-grid');
+  const byIsp = groupByIsp(runs);
+  if (byIsp.size < 2) { section.style.display = 'none'; return; }
+  section.style.display = 'block';
+  const isps = [...byIsp.keys()].sort();
+  note.textContent = `${isps.length} ISPs across ${runs.length} runs in window`;
+  grid.style.gridTemplateColumns = `repeat(${isps.length}, 1fr)`;
+
+  const cells = isps.map(isp => {
+    const arr = byIsp.get(isp);
+    const dn  = median(arr.map(r => r.throughput?.down_mbps).filter(v => v!=null));
+    const up  = median(arr.map(r => r.throughput?.up_mbps).filter(v => v!=null));
+    const rtt = median(arr.map(r => r.rtt_ms?.anthropic?.avg).filter(v => v!=null));
+    const blo = median(arr.map(r => r.bufferbloat?.increase_ms).filter(v => v!=null));
+    const passRates = {};
+    for (const w of WORKLOADS) {
+      const ok = arr.filter(r => (r.verdicts?.[w] || '').startsWith('OK')).length;
+      passRates[w] = arr.length ? Math.round(ok / arr.length * 100) : 0;
+    }
+    const labelsInIsp = [...new Set(arr.map(r => r.label))].sort();
+    const colorBar = labelsInIsp.map(l =>
+      `<span style="display:inline-block;width:12px;height:12px;background:${colorFor(l, 0)};border-radius:2px;margin-right:4px;vertical-align:middle"></span>${escape(l)}`
+    ).join(' &nbsp; ');
+
+    return `
+      <div style="border:1px solid #e6e6e6;border-radius:6px;padding:14px">
+        <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px">
+          <div style="font-size:18px;font-weight:700;text-transform:uppercase">${escape(isp)}</div>
+          <div style="font-size:11px;color:var(--muted)">${arr.length} runs</div>
+        </div>
+        <div style="font-size:11px;color:var(--muted);margin-bottom:10px">${colorBar}</div>
+        <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:8px;font-size:12px">
+          <div><div style="color:var(--muted);font-size:10px;text-transform:uppercase">↓ Mbps (med)</div><div style="font-size:18px;font-weight:700">${fmt1(dn)}</div></div>
+          <div><div style="color:var(--muted);font-size:10px;text-transform:uppercase">↑ Mbps (med)</div><div style="font-size:18px;font-weight:700">${fmt1(up)}</div></div>
+          <div><div style="color:var(--muted);font-size:10px;text-transform:uppercase">RTT anthropic</div><div style="font-size:18px;font-weight:700">${fmt0(rtt)} ms</div></div>
+          <div><div style="color:var(--muted);font-size:10px;text-transform:uppercase">bufferbloat</div><div style="font-size:18px;font-weight:700">${fmt1(blo)} ms</div></div>
+        </div>
+        <div style="margin-top:12px;display:grid;grid-template-columns:repeat(5,1fr);gap:4px">
+          ${WORKLOADS.map(w => {
+            const p = passRates[w];
+            const cls = p === 100 ? 'ok' : p >= 50 ? 'unknown' : 'fail';
+            return `<div class="verdict-cell ${cls}" title="${w}: ${p}% pass">
+              <span style="font-size:9px;display:block;opacity:.85">${w.replace('streaming_','').replace('video_','').slice(0,5)}</span>
+              <span class="pct">${p}%</span></div>`;
+          }).join('')}
+        </div>
+      </div>`;
+  }).join('');
+  grid.innerHTML = cells;
 }
 
 // ---------- KPI cards ----------
@@ -321,7 +432,7 @@ function renderCharts(runs) {
     });
     const ds = [];
     labels.forEach((lab, i) => {
-      const c = COLORS[i % COLORS.length];
+      const c = colorFor(lab, i);
       const runsL = byLabel.get(lab);
       ds.push(lineDataset(`${lab} ↓`, runsL.map(r => ({x:new Date(r.ts), y:r.throughput?.down_mbps})), c));
       ds.push(lineDataset(`${lab} ↑`, runsL.map(r => ({x:new Date(r.ts), y:r.throughput?.up_mbps})),   c, {dash:[5,4]}));
@@ -338,7 +449,7 @@ function renderCharts(runs) {
     });
     const ds = [];
     labels.forEach((lab, i) => {
-      const c = COLORS[i % COLORS.length];
+      const c = colorFor(lab, i);
       const arr = byLabel.get(lab);
       ds.push(lineDataset(`${lab} · anthropic`, arr.map(r => ({x:new Date(r.ts), y:r.rtt_ms?.anthropic?.avg})), c));
       ds.push(lineDataset(`${lab} · eu_hub`,    arr.map(r => ({x:new Date(r.ts), y:r.rtt_ms?.eu_hub?.avg})),    c, {dash:[5,4]}));
@@ -355,7 +466,7 @@ function renderCharts(runs) {
          grid:{color:(c)=> c.tick.value===30?'#f0ad4e':c.tick.value===60?'#dc3545':'#eee'}},
     });
     const ds = labels.map((lab, i) =>
-      lineDataset(lab, byLabel.get(lab).map(r => ({x:new Date(r.ts), y:r.bufferbloat?.increase_ms})), COLORS[i % COLORS.length])
+      lineDataset(lab, byLabel.get(lab).map(r => ({x:new Date(r.ts), y:r.bufferbloat?.increase_ms})), colorFor(lab, i))
     );
     ch.data.datasets = ds;
     ch.update('none');
@@ -368,7 +479,7 @@ function renderCharts(runs) {
       y:{beginAtZero:true, title:{display:true, text:'jitter ms (eu_hub)'}},
     });
     const ds = labels.map((lab, i) =>
-      lineDataset(lab, byLabel.get(lab).map(r => ({x:new Date(r.ts), y:r.rtt_ms?.eu_hub?.jitter})), COLORS[i % COLORS.length])
+      lineDataset(lab, byLabel.get(lab).map(r => ({x:new Date(r.ts), y:r.rtt_ms?.eu_hub?.jitter})), colorFor(lab, i))
     );
     ch.data.datasets = ds;
     ch.update('none');
@@ -470,14 +581,18 @@ function escape(s) {
   return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 }
 
-// ---------- label filter ----------
+// ---------- label + ISP filter ----------
 function refreshLabelSelect() {
-  const sel = document.getElementById('f-label');
   const labels = [...new Set(state.runs.map(r => r.label))].sort();
-  state.labels = labels;
-  const cur = state.selectedLabels;
-  sel.innerHTML = '<option value="__all__"' + (cur.has('__all__')?' selected':'') + '>all</option>' +
-    labels.map(l => `<option value="${escape(l)}"${cur.has(l)?' selected':''}>${escape(l)}</option>`).join('');
+  const isps   = [...new Set(state.runs.map(r => getIsp(r.label)))].sort();
+  state.labels = labels; state.isps = isps;
+  const labSel = document.getElementById('f-label');
+  const ispSel = document.getElementById('f-isp');
+  const curL = state.selectedLabels, curI = state.selectedIsps;
+  labSel.innerHTML = '<option value="__all__"' + (curL.has('__all__')?' selected':'') + '>all</option>' +
+    labels.map(l => `<option value="${escape(l)}"${curL.has(l)?' selected':''}>${escape(l)}</option>`).join('');
+  ispSel.innerHTML = '<option value="__all__"' + (curI.has('__all__')?' selected':'') + '>all</option>' +
+    isps.map(i => `<option value="${escape(i)}"${curI.has(i)?' selected':''}>${escape(i)}</option>`).join('');
 }
 
 document.getElementById('f-label').addEventListener('change', (e) => {
@@ -485,6 +600,13 @@ document.getElementById('f-label').addEventListener('change', (e) => {
   for (const opt of e.target.selectedOptions) sel.add(opt.value);
   if (sel.size === 0) sel.add('__all__');
   state.selectedLabels = sel;
+  refreshUI();
+});
+document.getElementById('f-isp').addEventListener('change', (e) => {
+  const sel = new Set();
+  for (const opt of e.target.selectedOptions) sel.add(opt.value);
+  if (sel.size === 0) sel.add('__all__');
+  state.selectedIsps = sel;
   refreshUI();
 });
 document.getElementById('f-since').addEventListener('change', (e) => {
@@ -503,6 +625,7 @@ function restartTimer() {
 function refreshUI() {
   refreshLabelSelect();
   const runs = selectedRuns();
+  renderIspComparison(runs);
   renderKPIs(runs);
   renderCharts(runs);
   renderVerdicts(runs);

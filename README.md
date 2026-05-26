@@ -76,18 +76,57 @@ JSON schema (v2):
 }
 ```
 
-## Comparing runs
+## Live dashboard
+
+```bash
+python3 server.py    # http://127.0.0.1:8765/
+```
+
+Reads every `logs/*.jsonl` file and polls itself every 30s. KPI cards, line charts (throughput, RTT, bufferbloat, jitter), per-workload pass-rate grid, sortable runs table. Filter by ISP, label, time window.
+
+The dashboard auto-groups by **ISP** when it sees `<isp>-<medium>` labels — see naming convention below.
+
+## Comparing across ISPs (or machines)
+
+### Label naming convention
+
+```
+<isp>-<medium>
+```
+
+Examples: `play-eth`, `play-wifi`, `netia-eth`, `netia-wifi`, `tmobile-wifi`.
+
+The dashboard derives the ISP from the prefix before the first hyphen, gives each ISP its own colour family (Play = blue, Netia = orange, etc.), and shows a side-by-side ISP comparison card row when ≥2 ISPs are present. Add more palettes by editing `ISP_PALETTES` in `dashboard.html`.
+
+### Importing logs from another machine
+
+```bash
+# on the Netia machine: run the monitor as normal
+LABEL=netia-eth ./monitor.sh
+
+# then copy its .jsonl files into THIS machine's logs/ directory:
+scp netia-machine:~/isp-monitor/logs/netia-*.jsonl ./logs/
+# or with rsync:
+rsync -av netia-machine:~/isp-monitor/logs/netia-*.jsonl ./logs/
+```
+
+The dashboard picks them up on the next poll — no restart needed. `version` field in each JSON line means v1 and v2 lines can coexist if you ever mix them.
+
+### Diagnostic guide
+
+Once you have both ISPs side-by-side, look at the four RTT columns:
+
+- Worse on **all 4 RTT targets** → ISP B's local link is just slower
+- Worse on **anthropic + eu_hub + us_east**, fine on **pl_local** → ISP B has weaker international peering
+- Worse on **only anthropic** → ISP B's anycast routing sends you to a more distant Anthropic POP
+- Higher **bufferbloat** on ISP B → its CPE has worse queueing under load; affects gaming and calls most
+
+## Comparing runs from the command line
 
 ```bash
 cat logs/*.txt | sort                                          # all human lines
-python3 -m json.tool --json-lines < logs/ISP1-eth.jsonl        # pretty JSON
+python3 -m json.tool --json-lines < logs/play-eth.jsonl        # pretty JSON
 ```
-
-The interesting diagnostic when ISP2 looks worse than ISP1:
-
-- Worse on **all 4 RTT targets** → ISP2's local link is just slower
-- Worse on **anthropic + eu_hub + us_east**, fine on **pl_local** → ISP2 has weaker international peering
-- Worse on **only anthropic** → ISP2's anycast routing sends you to a more distant Anthropic POP
 
 ## Workload thresholds
 
