@@ -1,0 +1,517 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>isp-monitor dashboard</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.1" integrity="sha384-jb8JQMbMoBUzgWatfe6COACi2ljcDdZQ2OxczGA3bGNeWe+6DChMTBJemed7ZnvJ" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0" integrity="sha384-cVMg8E3QFwTvGCDuK+ET4PD341jF3W8nO1auiXfuZNQkzbUUiBGLsIQUE+b1mxws" crossorigin="anonymous"></script>
+<style>
+:root{
+  --bg:#f4f5f7; --card:#fff; --hdr:#1a1a2e; --text:#1f2328; --muted:#6c757d;
+  --c1:#4C72B0; --c2:#DD8452; --c3:#55A868; --c4:#C44E52; --c5:#8172B3; --c6:#937860;
+  --ok:#28a745; --warn:#f0ad4e; --fail:#dc3545; --unknown:#adb5bd;
+  --gap:14px; --radius:8px;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+  background:var(--bg);color:var(--text);line-height:1.4;font-size:14px}
+.container{max-width:1500px;margin:0 auto;padding:var(--gap)}
+header{background:var(--hdr);color:#fff;padding:14px 20px;border-radius:var(--radius);
+  margin-bottom:var(--gap);display:flex;justify-content:space-between;align-items:center;
+  flex-wrap:wrap;gap:12px}
+header h1{font-size:18px;font-weight:600}
+.subtitle{font-size:12px;color:rgba(255,255,255,.7);margin-top:2px}
+.filters{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.filter-group{display:flex;align-items:center;gap:6px}
+.filter-group label{font-size:11px;color:rgba(255,255,255,.7);text-transform:uppercase;letter-spacing:.5px}
+.filter-group select,.filter-group input{padding:5px 8px;border:1px solid rgba(255,255,255,.2);
+  border-radius:4px;background:rgba(255,255,255,.1);color:#fff;font-size:12px}
+.filter-group select option{background:var(--hdr);color:#fff}
+.refresh-status{font-size:11px;color:rgba(255,255,255,.7);font-variant-numeric:tabular-nums}
+.refresh-status .dot{display:inline-block;width:8px;height:8px;border-radius:50%;
+  background:#4caf50;margin-right:6px;vertical-align:middle}
+.refresh-status .dot.stale{background:#ff9800}
+.refresh-status .dot.error{background:#f44336}
+
+.kpi-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:var(--gap);margin-bottom:var(--gap)}
+.kpi-card{background:var(--card);border-radius:var(--radius);padding:14px 18px;
+  box-shadow:0 1px 3px rgba(0,0,0,.06)}
+.kpi-label{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px}
+.kpi-value{font-size:22px;font-weight:700;font-variant-numeric:tabular-nums}
+.kpi-sub{font-size:11px;color:var(--muted);margin-top:2px}
+
+.chart-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(420px,1fr));gap:var(--gap);margin-bottom:var(--gap)}
+.chart-card{background:var(--card);border-radius:var(--radius);padding:14px 18px;
+  box-shadow:0 1px 3px rgba(0,0,0,.06)}
+.chart-card h3{font-size:13px;font-weight:600;margin-bottom:10px;display:flex;justify-content:space-between;align-items:center}
+.chart-card .note{font-size:11px;color:var(--muted);font-weight:400}
+.chart-card .canvas-wrap{position:relative;height:240px}
+
+.verdict-section{background:var(--card);border-radius:var(--radius);padding:14px 18px;
+  box-shadow:0 1px 3px rgba(0,0,0,.06);margin-bottom:var(--gap)}
+.verdict-section h3{font-size:13px;font-weight:600;margin-bottom:10px}
+.verdict-grid{display:grid;gap:6px;font-size:12px}
+.verdict-grid .vh{font-weight:600;color:var(--muted);text-transform:uppercase;font-size:10px;letter-spacing:.5px}
+.verdict-grid .vlabel{font-weight:600}
+.verdict-cell{padding:8px 10px;border-radius:4px;text-align:center;font-variant-numeric:tabular-nums;font-size:11px;color:#fff}
+.verdict-cell.ok{background:var(--ok)}
+.verdict-cell.fail{background:var(--fail)}
+.verdict-cell.unknown{background:var(--unknown)}
+.verdict-cell .pct{font-weight:700;font-size:13px;display:block}
+
+.table-section{background:var(--card);border-radius:var(--radius);padding:14px 18px;
+  box-shadow:0 1px 3px rgba(0,0,0,.06);overflow-x:auto;margin-bottom:var(--gap)}
+.table-section h3{font-size:13px;font-weight:600;margin-bottom:10px;display:flex;justify-content:space-between}
+.table-section .note{font-size:11px;color:var(--muted);font-weight:400}
+table{width:100%;border-collapse:collapse;font-size:12px;font-variant-numeric:tabular-nums}
+th{text-align:left;padding:8px 8px;border-bottom:2px solid #dee2e6;color:var(--muted);
+  font-weight:600;font-size:10px;text-transform:uppercase;letter-spacing:.5px;user-select:none;cursor:pointer;white-space:nowrap}
+th:hover{color:var(--text);background:#f8f9fa}
+td{padding:6px 8px;border-bottom:1px solid #f0f0f0}
+tr:hover{background:#f8f9fa}
+.badge{display:inline-block;padding:2px 6px;border-radius:3px;font-size:10px;font-weight:600;color:#fff}
+.badge.ok{background:var(--ok)}.badge.fail{background:var(--fail)}.badge.unknown{background:var(--unknown)}
+.grade{display:inline-block;width:24px;height:20px;line-height:20px;text-align:center;border-radius:3px;
+  font-weight:700;font-size:11px;color:#fff}
+.grade.A\\+{background:#198754}.grade.A{background:#28a745}.grade.B{background:#5cb85c}
+.grade.C{background:#f0ad4e}.grade.D{background:#fd7e14}.grade.F{background:#dc3545}
+
+.empty{text-align:center;padding:60px;color:var(--muted);font-size:14px}
+
+footer{text-align:center;color:var(--muted);font-size:11px;padding:10px}
+@media (max-width:768px){
+  .kpi-row{grid-template-columns:repeat(2,1fr)}
+  .chart-row{grid-template-columns:1fr}
+}
+</style>
+</head>
+<body>
+<div class="container">
+  <header>
+    <div>
+      <h1>isp-monitor</h1>
+      <div class="subtitle">internet quality benchmark — comparing ISPs and connection types</div>
+    </div>
+    <div class="filters">
+      <div class="filter-group">
+        <label>label</label>
+        <select id="f-label" multiple size="1"><option value="__all__" selected>all</option></select>
+      </div>
+      <div class="filter-group">
+        <label>since</label>
+        <select id="f-since">
+          <option value="0">all time</option>
+          <option value="1">last hour</option>
+          <option value="6">last 6h</option>
+          <option value="24" selected>last 24h</option>
+          <option value="168">last 7d</option>
+        </select>
+      </div>
+      <div class="filter-group">
+        <label>auto-refresh</label>
+        <select id="f-refresh">
+          <option value="0">off</option>
+          <option value="10">10s</option>
+          <option value="30" selected>30s</option>
+          <option value="60">1m</option>
+          <option value="300">5m</option>
+        </select>
+      </div>
+      <div class="refresh-status"><span class="dot" id="status-dot"></span><span id="status-text">loading…</span></div>
+    </div>
+  </header>
+
+  <section class="kpi-row" id="kpi-row"></section>
+
+  <section class="chart-row">
+    <div class="chart-card">
+      <h3>throughput over time <span class="note">↓ down / ↑ up Mbps, per label</span></h3>
+      <div class="canvas-wrap"><canvas id="chart-tput"></canvas></div>
+    </div>
+    <div class="chart-card">
+      <h3>RTT to anchor targets <span class="note">avg ms · solid=anthropic, dashed=eu_hub</span></h3>
+      <div class="canvas-wrap"><canvas id="chart-rtt"></canvas></div>
+    </div>
+  </section>
+
+  <section class="chart-row">
+    <div class="chart-card">
+      <h3>bufferbloat under load <span class="note">ms increase (loaded − idle); &lt;30 = green-zone</span></h3>
+      <div class="canvas-wrap"><canvas id="chart-bloat"></canvas></div>
+    </div>
+    <div class="chart-card">
+      <h3>jitter <span class="note">stddev ms · per label, eu_hub anchor</span></h3>
+      <div class="canvas-wrap"><canvas id="chart-jitter"></canvas></div>
+    </div>
+  </section>
+
+  <section class="verdict-section">
+    <h3>per-workload pass rate <span class="note" id="verdict-note"></span></h3>
+    <div id="verdict-grid" class="verdict-grid"></div>
+  </section>
+
+  <section class="table-section">
+    <h3>runs <span class="note" id="table-note"></span></h3>
+    <div id="table-wrap"></div>
+  </section>
+
+  <footer>isp-monitor · live dashboard · polls /api/data</footer>
+</div>
+
+<script>
+const COLORS = ['#4C72B0','#DD8452','#55A868','#C44E52','#8172B3','#937860','#DA8BC3','#8C8C8C'];
+const WORKLOADS = ['claude','streaming_hd','streaming_4k','gaming','video_calls'];
+const TARGETS   = ['anthropic','pl_local','eu_hub','us_east'];
+
+const state = {
+  runs: [],
+  labels: [],
+  selectedLabels: new Set(['__all__']),
+  sinceHours: 24,
+  refreshSec: 30,
+  charts: {},
+  sortField: 'ts',
+  sortDir: 'desc',
+  lastFetch: null,
+  refreshTimer: null,
+};
+
+// ---------- fetch ----------
+async function fetchData() {
+  try {
+    const r = await fetch('/api/data', {cache:'no-store'});
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const d = await r.json();
+    state.runs = d.runs || [];
+    state.lastFetch = new Date();
+    setStatus('ok', `${state.runs.length} runs · updated ${formatTimeAgo(state.lastFetch)}`);
+    refreshUI();
+  } catch (e) {
+    setStatus('error', 'fetch failed: ' + e.message);
+  }
+}
+
+function setStatus(kind, text) {
+  const dot = document.getElementById('status-dot');
+  dot.className = 'dot' + (kind==='error'?' error':kind==='stale'?' stale':'');
+  document.getElementById('status-text').textContent = text;
+}
+
+function formatTimeAgo(d) {
+  const sec = Math.floor((Date.now() - d.getTime()) / 1000);
+  if (sec < 60) return sec + 's ago';
+  if (sec < 3600) return Math.floor(sec/60) + 'm ago';
+  return Math.floor(sec/3600) + 'h ago';
+}
+
+setInterval(() => {
+  if (state.lastFetch) setStatus('ok', `${state.runs.length} runs · updated ${formatTimeAgo(state.lastFetch)}`);
+}, 5000);
+
+// ---------- filter selection ----------
+function selectedRuns() {
+  const now = Date.now();
+  const cutoff = state.sinceHours > 0 ? now - state.sinceHours*3600*1000 : 0;
+  const all = state.selectedLabels.has('__all__');
+  return state.runs.filter(r => {
+    if (!all && !state.selectedLabels.has(r.label)) return false;
+    const t = new Date(r.ts).getTime();
+    if (cutoff && t < cutoff) return false;
+    return true;
+  });
+}
+
+function groupByLabel(runs) {
+  const m = new Map();
+  for (const r of runs) {
+    if (!m.has(r.label)) m.set(r.label, []);
+    m.get(r.label).push(r);
+  }
+  for (const arr of m.values()) arr.sort((a,b) => new Date(a.ts) - new Date(b.ts));
+  return m;
+}
+
+// ---------- KPI cards ----------
+function renderKPIs(runs) {
+  const row = document.getElementById('kpi-row');
+  if (!runs.length) {
+    row.innerHTML = '<div class="kpi-card"><div class="kpi-label">no data</div><div class="kpi-value">—</div><div class="kpi-sub">run ./monitor.sh to populate logs</div></div>';
+    return;
+  }
+  const byLabel = groupByLabel(runs);
+  const latestPerLabel = [...byLabel.entries()].map(([label, arr]) => ({label, run: arr[arr.length-1]}));
+
+  // Overall KPIs
+  const downs = runs.map(r => r.throughput?.down_mbps).filter(v => v != null);
+  const ups   = runs.map(r => r.throughput?.up_mbps).filter(v => v != null);
+  const bloats= runs.map(r => r.bufferbloat?.increase_ms).filter(v => v != null);
+  const rttAn = runs.map(r => r.rtt_ms?.anthropic?.avg).filter(v => v != null);
+
+  const cards = [
+    {label:'runs in window', value:runs.length, sub:`${byLabel.size} label${byLabel.size===1?'':'s'}`},
+    {label:'median ↓ Mbps', value:fmt1(median(downs)), sub:`p10=${fmt0(pct(downs,10))} p90=${fmt0(pct(downs,90))}`},
+    {label:'median ↑ Mbps', value:fmt1(median(ups)),   sub:`p10=${fmt0(pct(ups,10))} p90=${fmt0(pct(ups,90))}`},
+    {label:'median bufferbloat ms', value:fmt1(median(bloats)), sub:`max ${fmt1(Math.max(...bloats, 0))}`},
+    {label:'median RTT to anthropic', value:fmt0(median(rttAn))+' ms', sub:`p90=${fmt0(pct(rttAn,90))} ms`},
+  ];
+  row.innerHTML = cards.map(c =>
+    `<div class="kpi-card"><div class="kpi-label">${c.label}</div><div class="kpi-value">${c.value}</div><div class="kpi-sub">${c.sub}</div></div>`
+  ).join('');
+}
+
+function median(arr) {
+  if (!arr.length) return null;
+  const s = [...arr].sort((a,b)=>a-b);
+  const m = Math.floor(s.length/2);
+  return s.length % 2 ? s[m] : (s[m-1]+s[m])/2;
+}
+function pct(arr, p) {
+  if (!arr.length) return null;
+  const s = [...arr].sort((a,b)=>a-b);
+  const i = Math.min(s.length-1, Math.floor(s.length * p/100));
+  return s[i];
+}
+function fmt0(v) { return v == null ? '—' : Math.round(v).toLocaleString(); }
+function fmt1(v) { return v == null ? '—' : Number(v).toFixed(1); }
+
+// ---------- charts ----------
+function ensureChart(id, type, scales) {
+  if (state.charts[id]) return state.charts[id];
+  const ctx = document.getElementById(id).getContext('2d');
+  const ch = new Chart(ctx, {
+    type, data:{datasets:[]},
+    options:{
+      responsive:true, maintainAspectRatio:false, animation:false,
+      interaction:{mode:'index', intersect:false},
+      plugins:{legend:{position:'top',labels:{usePointStyle:true,padding:8,boxWidth:8,font:{size:11}}},
+               tooltip:{enabled:true}},
+      scales:scales || {x:{type:'time', time:{unit:'hour'}, grid:{display:false}}, y:{beginAtZero:true}}
+    }
+  });
+  state.charts[id] = ch;
+  return ch;
+}
+
+function lineDataset(label, points, color, opts={}) {
+  return {
+    label,
+    data: points.map(p => ({x: p.x, y: p.y})),
+    borderColor: color,
+    backgroundColor: color + '20',
+    borderWidth: 1.6,
+    pointRadius: 2,
+    pointHoverRadius: 4,
+    tension: 0.25,
+    spanGaps: true,
+    borderDash: opts.dash || [],
+    yAxisID: opts.yAxisID,
+  };
+}
+
+function renderCharts(runs) {
+  const byLabel = groupByLabel(runs);
+  const labels  = [...byLabel.keys()].sort();
+
+  // Throughput: down + up, two y-axes
+  {
+    const ch = ensureChart('chart-tput','line',{
+      x:{type:'time', time:{unit:'hour'}, grid:{display:false}},
+      y:{type:'linear', position:'left', beginAtZero:true, title:{display:true, text:'Mbps'}},
+    });
+    const ds = [];
+    labels.forEach((lab, i) => {
+      const c = COLORS[i % COLORS.length];
+      const runsL = byLabel.get(lab);
+      ds.push(lineDataset(`${lab} ↓`, runsL.map(r => ({x:new Date(r.ts), y:r.throughput?.down_mbps})), c));
+      ds.push(lineDataset(`${lab} ↑`, runsL.map(r => ({x:new Date(r.ts), y:r.throughput?.up_mbps})),   c, {dash:[5,4]}));
+    });
+    ch.data.datasets = ds;
+    ch.update('none');
+  }
+
+  // RTT: anthropic solid + eu_hub dashed, per label
+  {
+    const ch = ensureChart('chart-rtt','line',{
+      x:{type:'time', time:{unit:'hour'}, grid:{display:false}},
+      y:{beginAtZero:true, title:{display:true, text:'avg ms'}},
+    });
+    const ds = [];
+    labels.forEach((lab, i) => {
+      const c = COLORS[i % COLORS.length];
+      const arr = byLabel.get(lab);
+      ds.push(lineDataset(`${lab} · anthropic`, arr.map(r => ({x:new Date(r.ts), y:r.rtt_ms?.anthropic?.avg})), c));
+      ds.push(lineDataset(`${lab} · eu_hub`,    arr.map(r => ({x:new Date(r.ts), y:r.rtt_ms?.eu_hub?.avg})),    c, {dash:[5,4]}));
+    });
+    ch.data.datasets = ds;
+    ch.update('none');
+  }
+
+  // Bufferbloat
+  {
+    const ch = ensureChart('chart-bloat','line',{
+      x:{type:'time', time:{unit:'hour'}, grid:{display:false}},
+      y:{beginAtZero:true, title:{display:true, text:'ms increase under load'},
+         grid:{color:(c)=> c.tick.value===30?'#f0ad4e':c.tick.value===60?'#dc3545':'#eee'}},
+    });
+    const ds = labels.map((lab, i) =>
+      lineDataset(lab, byLabel.get(lab).map(r => ({x:new Date(r.ts), y:r.bufferbloat?.increase_ms})), COLORS[i % COLORS.length])
+    );
+    ch.data.datasets = ds;
+    ch.update('none');
+  }
+
+  // Jitter (eu_hub)
+  {
+    const ch = ensureChart('chart-jitter','line',{
+      x:{type:'time', time:{unit:'hour'}, grid:{display:false}},
+      y:{beginAtZero:true, title:{display:true, text:'jitter ms (eu_hub)'}},
+    });
+    const ds = labels.map((lab, i) =>
+      lineDataset(lab, byLabel.get(lab).map(r => ({x:new Date(r.ts), y:r.rtt_ms?.eu_hub?.jitter})), COLORS[i % COLORS.length])
+    );
+    ch.data.datasets = ds;
+    ch.update('none');
+  }
+}
+
+// ---------- verdict pass-rate grid ----------
+function renderVerdicts(runs) {
+  const grid = document.getElementById('verdict-grid');
+  const note = document.getElementById('verdict-note');
+  if (!runs.length) { grid.innerHTML = ''; note.textContent = ''; return; }
+  const byLabel = groupByLabel(runs);
+  const labels  = [...byLabel.keys()].sort();
+  note.textContent = `over ${runs.length} run${runs.length===1?'':'s'}, ${labels.length} label${labels.length===1?'':'s'}`;
+
+  const cols = labels.length + 1;
+  grid.style.gridTemplateColumns = `120px repeat(${cols-1}, 1fr)`;
+  const cells = ['<div class="vh"></div>'];
+  labels.forEach(l => cells.push(`<div class="vh">${escape(l)}</div>`));
+  WORKLOADS.forEach(w => {
+    cells.push(`<div class="vlabel">${w}</div>`);
+    labels.forEach(lab => {
+      const arr = byLabel.get(lab);
+      const okN  = arr.filter(r => (r.verdicts?.[w] || '').startsWith('OK')).length;
+      const failN= arr.filter(r => (r.verdicts?.[w] || '').startsWith('FAIL')).length;
+      const unkN = arr.length - okN - failN;
+      const pct = arr.length ? Math.round(okN / arr.length * 100) : 0;
+      const klass = okN === arr.length ? 'ok' : failN >= okN ? 'fail' : 'unknown';
+      cells.push(`<div class="verdict-cell ${klass}" title="OK ${okN} · FAIL ${failN} · UNKNOWN ${unkN}">
+        <span class="pct">${pct}%</span>${okN}/${arr.length}</div>`);
+    });
+  });
+  grid.innerHTML = cells.join('');
+}
+
+// ---------- table ----------
+function renderTable(runs) {
+  const note = document.getElementById('table-note');
+  const wrap = document.getElementById('table-wrap');
+  note.textContent = `${runs.length} run${runs.length===1?'':'s'} · click headers to sort`;
+  if (!runs.length) { wrap.innerHTML = '<div class="empty">no runs in window</div>'; return; }
+
+  const cols = [
+    {f:'ts', label:'time', get:r=>r.ts, render:v=>new Date(v).toLocaleString()},
+    {f:'label', label:'label'},
+    {f:'down', label:'↓ Mbps', get:r=>r.throughput?.down_mbps, render:v=>fmt1(v)},
+    {f:'up', label:'↑ Mbps', get:r=>r.throughput?.up_mbps, render:v=>fmt1(v)},
+    {f:'rtt_an', label:'rtt-an', get:r=>r.rtt_ms?.anthropic?.avg, render:v=>fmt0(v)},
+    {f:'rtt_pl', label:'rtt-pl', get:r=>r.rtt_ms?.pl_local?.avg, render:v=>fmt0(v)},
+    {f:'rtt_eu', label:'rtt-eu', get:r=>r.rtt_ms?.eu_hub?.avg, render:v=>fmt0(v)},
+    {f:'rtt_us', label:'rtt-us', get:r=>r.rtt_ms?.us_east?.avg, render:v=>fmt0(v)},
+    {f:'loss', label:'loss%', get:r=>r.rtt_ms?.anthropic?.loss_pct, render:v=>fmt1(v)},
+    {f:'jit_eu', label:'jit-eu', get:r=>r.rtt_ms?.eu_hub?.jitter, render:v=>fmt1(v)},
+    {f:'bloat', label:'bloat', get:r=>r.bufferbloat?.increase_ms, render:(v,r)=>(v==null?'—':fmt1(v)) + (r.bufferbloat?.grade?` <span class="grade ${r.bufferbloat.grade.replace('+','\\\\+')}">${r.bufferbloat.grade}</span>`:'')},
+    {f:'claude', label:'claude', get:r=>r.verdicts?.claude, render:verdictBadge},
+    {f:'4k', label:'4k', get:r=>r.verdicts?.streaming_4k, render:verdictBadge},
+    {f:'hd', label:'hd', get:r=>r.verdicts?.streaming_hd, render:verdictBadge},
+    {f:'game', label:'game', get:r=>r.verdicts?.gaming, render:verdictBadge},
+    {f:'calls', label:'calls', get:r=>r.verdicts?.video_calls, render:verdictBadge},
+  ];
+
+  const sorted = [...runs].sort((a,b) => {
+    const col = cols.find(c => c.f === state.sortField) || cols[0];
+    const av = col.get ? col.get(a) : a[col.f];
+    const bv = col.get ? col.get(b) : b[col.f];
+    if (av == null && bv == null) return 0;
+    if (av == null) return 1;
+    if (bv == null) return -1;
+    const cmp = av < bv ? -1 : av > bv ? 1 : 0;
+    return state.sortDir === 'asc' ? cmp : -cmp;
+  });
+
+  const head = '<tr>' + cols.map(c => {
+    const arrow = c.f === state.sortField ? (state.sortDir === 'asc' ? ' ▲' : ' ▼') : '';
+    return `<th data-f="${c.f}">${c.label}${arrow}</th>`;
+  }).join('') + '</tr>';
+  const body = sorted.slice(0, 200).map(r =>
+    '<tr>' + cols.map(c => `<td>${c.render ? c.render(c.get?c.get(r):r[c.f], r) : escape(c.get?c.get(r):r[c.f])}</td>`).join('') + '</tr>'
+  ).join('');
+  wrap.innerHTML = `<table><thead>${head}</thead><tbody>${body}</tbody></table>` +
+                   (sorted.length > 200 ? `<div class="empty">showing first 200 of ${sorted.length}</div>` : '');
+  wrap.querySelectorAll('th').forEach(th => th.addEventListener('click', () => {
+    const f = th.dataset.f;
+    if (state.sortField === f) state.sortDir = state.sortDir === 'asc' ? 'desc' : 'asc';
+    else { state.sortField = f; state.sortDir = 'desc'; }
+    renderTable(runs);
+  }));
+}
+
+function verdictBadge(v) {
+  if (!v) return '—';
+  const klass = v.startsWith('OK') ? 'ok' : v.startsWith('FAIL') ? 'fail' : 'unknown';
+  const short = v.startsWith('OK') ? 'OK' : v.startsWith('FAIL') ? 'FAIL' : 'UNK';
+  return `<span class="badge ${klass}" title="${escape(v)}">${short}</span>`;
+}
+
+function escape(s) {
+  if (s == null) return '';
+  return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+// ---------- label filter ----------
+function refreshLabelSelect() {
+  const sel = document.getElementById('f-label');
+  const labels = [...new Set(state.runs.map(r => r.label))].sort();
+  state.labels = labels;
+  const cur = state.selectedLabels;
+  sel.innerHTML = '<option value="__all__"' + (cur.has('__all__')?' selected':'') + '>all</option>' +
+    labels.map(l => `<option value="${escape(l)}"${cur.has(l)?' selected':''}>${escape(l)}</option>`).join('');
+}
+
+document.getElementById('f-label').addEventListener('change', (e) => {
+  const sel = new Set();
+  for (const opt of e.target.selectedOptions) sel.add(opt.value);
+  if (sel.size === 0) sel.add('__all__');
+  state.selectedLabels = sel;
+  refreshUI();
+});
+document.getElementById('f-since').addEventListener('change', (e) => {
+  state.sinceHours = Number(e.target.value); refreshUI();
+});
+document.getElementById('f-refresh').addEventListener('change', (e) => {
+  state.refreshSec = Number(e.target.value); restartTimer();
+});
+
+function restartTimer() {
+  if (state.refreshTimer) { clearInterval(state.refreshTimer); state.refreshTimer = null; }
+  if (state.refreshSec > 0) state.refreshTimer = setInterval(fetchData, state.refreshSec * 1000);
+}
+
+// ---------- top-level refresh ----------
+function refreshUI() {
+  refreshLabelSelect();
+  const runs = selectedRuns();
+  renderKPIs(runs);
+  renderCharts(runs);
+  renderVerdicts(runs);
+  renderTable(runs);
+}
+
+// ---------- boot ----------
+fetchData();
+restartTimer();
+</script>
+</body>
+</html>
