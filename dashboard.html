@@ -44,9 +44,21 @@ header h1{font-size:18px;font-weight:600}
 .chart-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(420px,1fr));gap:var(--gap);margin-bottom:var(--gap)}
 .chart-card{background:var(--card);border-radius:var(--radius);padding:14px 18px;
   box-shadow:0 1px 3px rgba(0,0,0,.06)}
-.chart-card h3{font-size:13px;font-weight:600;margin-bottom:10px;display:flex;justify-content:space-between;align-items:center}
+.chart-card h3{font-size:13px;font-weight:600;margin-bottom:10px;display:flex;justify-content:space-between;align-items:center;gap:8px}
+.chart-card h3 .title-text{flex:1}
 .chart-card .note{font-size:11px;color:var(--muted);font-weight:400}
 .chart-card .canvas-wrap{position:relative;height:240px}
+
+/* Hardware-benchmark style direction badges (Higher=Better / Lower=Better) */
+.dir-badge{display:inline-flex;align-items:center;gap:3px;padding:2px 7px;border-radius:10px;
+  font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;white-space:nowrap}
+.dir-badge.higher{background:#d4edda;color:#155724;border:1px solid #c3e6cb}
+.dir-badge.lower{background:#cce5ff;color:#004085;border:1px solid #b8daff}
+.dir-badge::before{font-size:11px;font-weight:900}
+.dir-badge.higher::before{content:"▲"}
+.dir-badge.lower::before{content:"▼"}
+.kpi-card .dir-badge{margin-left:6px;vertical-align:middle}
+.metric-cell .dir-badge{margin-left:6px;font-size:9px;padding:1px 5px}
 
 .verdict-section{background:var(--card);border-radius:var(--radius);padding:14px 18px;
   box-shadow:0 1px 3px rgba(0,0,0,.06);margin-bottom:var(--gap)}
@@ -310,22 +322,22 @@ cat logs/smoke-test.jsonl | python3 -m json.tool</pre>
 
   <section class="chart-row">
     <div class="chart-card" title="Download/upload bandwidth from the speedtest cycle (Mbps). Higher = better.">
-      <h3>throughput over time <span class="note">↓ down / ↑ up Mbps, per label</span></h3>
+      <h3><span class="title-text">throughput over time <span class="note">↓ down / ↑ up Mbps, per label</span></span><span class="dir-badge higher">Higher = Better</span></h3>
       <div class="canvas-wrap"><canvas id="chart-tput"></canvas></div>
     </div>
     <div class="chart-card" title="Average round-trip time to each anchor target (ms). Lower = better. Solid line = Anthropic edge; dashed = Frankfurt hub.">
-      <h3>RTT to anchor targets <span class="note">avg ms · solid=anthropic, dashed=eu_hub</span></h3>
+      <h3><span class="title-text">RTT to anchor targets <span class="note">avg ms · solid=anthropic, dashed=eu_hub</span></span><span class="dir-badge lower">Lower = Better</span></h3>
       <div class="canvas-wrap"><canvas id="chart-rtt"></canvas></div>
     </div>
   </section>
 
   <section class="chart-row">
     <div class="chart-card" title="Extra latency added when the link is saturated (loaded RTT minus idle RTT, ms). Lower = better. <30 ms = grade A. The single most important metric for gaming and calls feeling smooth.">
-      <h3>bufferbloat under load <span class="note">ms increase (loaded − idle); &lt;30 = green-zone</span></h3>
+      <h3><span class="title-text">bufferbloat under load <span class="note">ms increase (loaded − idle); &lt;30 = green-zone</span></span><span class="dir-badge lower">Lower = Better</span></h3>
       <div class="canvas-wrap"><canvas id="chart-bloat"></canvas></div>
     </div>
     <div class="chart-card" title="Standard deviation of RTT to the Frankfurt anchor (ms). Lower = better. <5 ms is competitive-gaming-tight; >30 ms makes video calls choppy.">
-      <h3>jitter <span class="note">stddev ms · per label, eu_hub anchor</span></h3>
+      <h3><span class="title-text">jitter <span class="note">stddev ms · per label, eu_hub anchor</span></span><span class="dir-badge lower">Lower = Better</span></h3>
       <div class="canvas-wrap"><canvas id="chart-jitter"></canvas></div>
     </div>
   </section>
@@ -564,26 +576,26 @@ function renderStatusPanel(runs) {
   // 5 headline metrics with traffic-light coloring.
   // Thresholds documented in the glossary; see caveat about household size.
   const metrics = [
-    { label:'↓ Download', value: latest.throughput?.down_mbps, fmt: fmt1, unit:'Mbps',
+    { label:'↓ Download', dir:'higher', value: latest.throughput?.down_mbps, fmt: fmt1, unit:'Mbps',
       status: rate(latest.throughput?.down_mbps, [25, 100], 'higher'),
       hint: '≥25 single 4K · ≥100 comfortable for multiple users' },
-    { label:'↑ Upload', value: latest.throughput?.up_mbps, fmt: fmt1, unit:'Mbps',
+    { label:'↑ Upload', dir:'higher', value: latest.throughput?.up_mbps, fmt: fmt1, unit:'Mbps',
       status: rate(latest.throughput?.up_mbps, [5, 20], 'higher'),
       hint: '≥5 video calls · ≥20 Claude/agents' },
-    { label:'RTT (Anthropic)', value: latest.rtt_ms?.anthropic?.avg, fmt: fmt0, unit:'ms',
+    { label:'RTT (Anthropic)', dir:'lower', value: latest.rtt_ms?.anthropic?.avg, fmt: fmt0, unit:'ms',
       status: rate(latest.rtt_ms?.anthropic?.avg, [100, 200], 'lower'),
       hint: '<100 excellent · 100-200 OK · >200 slow' },
-    { label:'Bufferbloat', value: latest.bufferbloat?.increase_ms, fmt: fmt1,
+    { label:'Bufferbloat', dir:'lower', value: latest.bufferbloat?.increase_ms, fmt: fmt1,
       unit: 'ms' + (latest.bufferbloat?.grade ? ' · ' + latest.bufferbloat.grade : ''),
       status: rate(latest.bufferbloat?.increase_ms, [30, 60], 'lower'),
       hint: '<30 = A · matters most for gaming/calls' },
-    { label:'Packet Loss', value: latest.rtt_ms?.anthropic?.loss_pct, fmt: fmt1, unit:'%',
+    { label:'Packet Loss', dir:'lower', value: latest.rtt_ms?.anthropic?.loss_pct, fmt: fmt1, unit:'%',
       status: rate(latest.rtt_ms?.anthropic?.loss_pct, [0.5, 1], 'lower'),
       hint: '0% ideal · >1% breaks streams' },
   ];
   document.getElementById('status-metrics').innerHTML = metrics.map(m =>
     `<div class="metric-cell ${m.status}" title="${escape(m.hint)}">
-       <div class="mc-label">${m.label}</div>
+       <div class="mc-label">${m.label}<span class="dir-badge ${m.dir}">${m.dir==='higher'?'Higher':'Lower'}</span></div>
        <div class="mc-value">${m.value != null ? m.fmt(m.value) : '—'}<span class="mc-unit"> ${escape(m.unit)}</span></div>
        <div class="mc-hint">${escape(m.hint)}</div>
      </div>`
@@ -618,15 +630,16 @@ function renderKPIs(runs) {
   const rttAn = runs.map(r => r.rtt_ms?.anthropic?.avg).filter(v => v != null);
 
   const cards = [
-    {label:'runs in window', value:runs.length, sub:`${byLabel.size} label${byLabel.size===1?'':'s'}`},
-    {label:'median ↓ Mbps', value:fmt1(median(downs)), sub:`p10=${fmt0(pct(downs,10))} p90=${fmt0(pct(downs,90))}`},
-    {label:'median ↑ Mbps', value:fmt1(median(ups)),   sub:`p10=${fmt0(pct(ups,10))} p90=${fmt0(pct(ups,90))}`},
-    {label:'median bufferbloat ms', value:fmt1(median(bloats)), sub:`max ${fmt1(Math.max(...bloats, 0))}`},
-    {label:'median RTT to anthropic', value:fmt0(median(rttAn))+' ms', sub:`p90=${fmt0(pct(rttAn,90))} ms`},
+    {label:'runs in window', value:runs.length, sub:`${byLabel.size} label${byLabel.size===1?'':'s'}`, dir:null},
+    {label:'median ↓ Mbps', value:fmt1(median(downs)), sub:`p10=${fmt0(pct(downs,10))} p90=${fmt0(pct(downs,90))}`, dir:'higher'},
+    {label:'median ↑ Mbps', value:fmt1(median(ups)),   sub:`p10=${fmt0(pct(ups,10))} p90=${fmt0(pct(ups,90))}`, dir:'higher'},
+    {label:'median bufferbloat ms', value:fmt1(median(bloats)), sub:`max ${fmt1(Math.max(...bloats, 0))}`, dir:'lower'},
+    {label:'median RTT to anthropic', value:fmt0(median(rttAn))+' ms', sub:`p90=${fmt0(pct(rttAn,90))} ms`, dir:'lower'},
   ];
-  row.innerHTML = cards.map(c =>
-    `<div class="kpi-card"><div class="kpi-label">${c.label}</div><div class="kpi-value">${c.value}</div><div class="kpi-sub">${c.sub}</div></div>`
-  ).join('');
+  row.innerHTML = cards.map(c => {
+    const badge = c.dir ? `<span class="dir-badge ${c.dir}">${c.dir==='higher'?'Higher':'Lower'}</span>` : '';
+    return `<div class="kpi-card"><div class="kpi-label">${c.label}${badge}</div><div class="kpi-value">${c.value}</div><div class="kpi-sub">${c.sub}</div></div>`;
+  }).join('');
 }
 
 function median(arr) {
