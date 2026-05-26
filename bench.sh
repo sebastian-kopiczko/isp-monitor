@@ -8,6 +8,10 @@
 
 set -u -o pipefail
 
+# Force C numeric locale: awk's %.1f respects locale and would emit "26,2"
+# on PL/DE/etc. shells, breaking JSON validity and the grade reparse.
+export LC_NUMERIC=C
+
 LABEL="${LABEL:-${1:-unlabeled}}"
 if ! [[ "$LABEL" =~ ^[A-Za-z0-9._-]+$ ]]; then
   echo "error: LABEL must match [A-Za-z0-9._-]+ (got: '$LABEL')" >&2
