@@ -79,6 +79,57 @@ tr:hover{background:#f8f9fa}
 
 .empty{text-align:center;padding:60px;color:var(--muted);font-size:14px}
 
+/* Latest-status summary panel */
+.status-panel{margin-bottom:var(--gap)}
+.status-card{background:var(--card);border-radius:var(--radius);padding:16px 20px;box-shadow:0 1px 3px rgba(0,0,0,.06)}
+.status-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;flex-wrap:wrap;gap:12px}
+.status-title-block .status-title{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px}
+.status-title-block .status-meta{font-size:16px;font-weight:600;margin-top:2px}
+.status-title-block .status-meta .label-pill{display:inline-block;padding:2px 8px;background:#e9ecef;border-radius:3px;font-size:13px;margin-right:6px}
+.status-badge{padding:8px 16px;border-radius:6px;font-weight:700;font-size:13px;text-transform:uppercase;letter-spacing:.5px;color:#fff}
+.status-badge.healthy{background:var(--ok)}
+.status-badge.caution{background:var(--warn)}
+.status-badge.problem{background:var(--fail)}
+.status-badge.unknown{background:var(--unknown)}
+.status-metrics-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:12px}
+.metric-cell{padding:10px 12px;border-radius:6px;border-left:4px solid;background:#fff}
+.metric-cell.healthy{border-color:var(--ok);background:#f0fdf4}
+.metric-cell.caution{border-color:var(--warn);background:#fffbeb}
+.metric-cell.problem{border-color:var(--fail);background:#fef2f2}
+.metric-cell.unknown{border-color:var(--unknown);background:#f8f9fa}
+.metric-cell .mc-label{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:3px}
+.metric-cell .mc-value{font-size:18px;font-weight:700;font-variant-numeric:tabular-nums}
+.metric-cell .mc-unit{font-size:11px;font-weight:400;color:var(--muted);margin-left:2px}
+.metric-cell .mc-hint{font-size:10px;color:var(--muted);margin-top:2px}
+.status-verdicts{display:grid;grid-template-columns:repeat(5,1fr);gap:6px}
+.status-verdict{padding:8px 6px;text-align:center;border-radius:4px;color:#fff;line-height:1.3}
+.status-verdict.ok{background:var(--ok)}
+.status-verdict.fail{background:var(--fail)}
+.status-verdict.unknown{background:var(--unknown)}
+.status-verdict .v-name{font-size:10px;opacity:.85;text-transform:uppercase;letter-spacing:.5px}
+.status-verdict .v-state{font-weight:700;font-size:13px;margin-top:2px}
+
+/* Collapsible glossary */
+.glossary{background:var(--card);border-radius:var(--radius);margin-bottom:var(--gap);box-shadow:0 1px 3px rgba(0,0,0,.06);overflow:hidden}
+.glossary summary{padding:14px 18px;font-size:13px;font-weight:600;cursor:pointer;user-select:none;list-style:none;display:flex;align-items:center;gap:8px}
+.glossary summary::-webkit-details-marker{display:none}
+.glossary summary::before{content:"▶";font-size:10px;transition:transform .15s;color:var(--muted)}
+.glossary[open] summary::before{transform:rotate(90deg)}
+.glossary summary:hover{background:#f8f9fa}
+.glossary-content{padding:0 18px 18px;font-size:13px;line-height:1.6;color:var(--text)}
+.glossary-content h4{font-size:13px;margin-top:16px;margin-bottom:8px;font-weight:700;border-bottom:1px solid #e9ecef;padding-bottom:4px}
+.glossary-content h4:first-child{margin-top:0}
+.glossary-content .gdef{margin-bottom:10px;padding-left:10px;border-left:2px solid #e9ecef}
+.glossary-content .gdef-name{font-weight:700;color:#1a1a2e}
+.glossary-content .gdef-meta{font-size:11px;color:var(--muted);margin-top:1px}
+.glossary-content code{background:#f1f3f5;padding:1px 5px;border-radius:3px;font-size:12px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+.glossary-content table.grade-table{font-size:12px;margin:6px 0 10px;border-collapse:collapse}
+.glossary-content table.grade-table td{padding:3px 10px 3px 0}
+.glossary-content table.grade-table td:first-child{font-weight:700;font-family:ui-monospace,monospace;width:48px}
+.glossary-content .caveat{background:#fffbeb;border-left:3px solid var(--warn);padding:10px 14px;border-radius:4px;margin:12px 0;font-size:12px}
+.glossary-content .caveat strong{display:block;margin-bottom:4px}
+.glossary-content ul{margin-left:18px;margin-bottom:8px}
+
 footer{text-align:center;color:var(--muted);font-size:11px;padding:10px}
 @media (max-width:768px){
   .kpi-row{grid-template-columns:repeat(2,1fr)}
@@ -126,6 +177,128 @@ footer{text-align:center;color:var(--muted);font-size:11px;padding:10px}
     </div>
   </header>
 
+  <!-- Latest-status summary: most recent run, traffic-light coloring -->
+  <section id="status-panel" class="status-panel" style="display:none">
+    <div class="status-card">
+      <div class="status-head">
+        <div class="status-title-block">
+          <div class="status-title">Latest run</div>
+          <div class="status-meta">
+            <span class="label-pill" id="latest-label">—</span>
+            <span id="latest-time" style="font-size:12px;color:var(--muted);font-weight:400">—</span>
+          </div>
+        </div>
+        <div class="status-badge unknown" id="overall-badge">—</div>
+      </div>
+      <div class="status-metrics-row" id="status-metrics"></div>
+      <div class="status-verdicts" id="status-verdicts"></div>
+    </div>
+  </section>
+
+  <!-- Collapsible metric glossary -->
+  <details class="glossary">
+    <summary>📖 Reading this dashboard — what does each metric mean?</summary>
+    <div class="glossary-content">
+
+      <h4>Throughput — how much data your link moves per second</h4>
+      <div class="gdef">
+        <span class="gdef-name">Download (↓ down_mbps)</span> · unit <code>Mbps</code> (megabits/sec) · <strong>higher is better</strong>
+        <div>How fast you can pull data <em>from</em> the internet — video, software updates, web pages. Reported by a speedtest cycle to a nearby server.</div>
+        <div class="gdef-meta">Rough bands: <strong>≥25</strong> = single 4K stream OK · <strong>≥100</strong> = comfortable for a few users · <strong>≥500</strong> = fiber territory. Depends on household size.</div>
+      </div>
+      <div class="gdef">
+        <span class="gdef-name">Upload (↑ up_mbps)</span> · unit <code>Mbps</code> · <strong>higher is better</strong>
+        <div>How fast you can push data <em>to</em> the internet. Usually much lower than download on cable/DSL. Matters for video calls, cloud backups, sending images/codebases to Claude.</div>
+        <div class="gdef-meta">Rough bands: <strong>≥5</strong> = HD video calls · <strong>≥20</strong> = comfortable for Claude/agent workloads · <strong>≥50</strong> = large file uploads feel snappy.</div>
+      </div>
+
+      <h4>Latency — how long a packet takes to arrive</h4>
+      <div class="gdef">
+        <span class="gdef-name">RTT (round-trip time)</span> · unit <code>ms</code> (milliseconds) · <strong>lower is better</strong>
+        <div>Time for a tiny test packet to travel from your computer to a server and back. Reported as min/avg/max per anchor target — see "Anchor targets" below.</div>
+        <div class="gdef-meta">Heavily distance-dependent. Same city: &lt;10 ms. Same country: &lt;30 ms. Same continent: &lt;80 ms. Transatlantic: 120–180 ms. Asia from EU: 200–300 ms. Compare against the right anchor — see below.</div>
+      </div>
+      <div class="gdef">
+        <span class="gdef-name">Jitter</span> · unit <code>ms</code> (standard deviation of RTT) · <strong>lower is better</strong>
+        <div>How much the latency wobbles between consecutive packets. Steady = good; spiky = bad. Wifi typically has higher jitter than ethernet.</div>
+        <div class="gdef-meta"><strong>&lt;5 ms</strong> rock-solid (competitive gaming, real-time audio) · <strong>&lt;30 ms</strong> fine for video calls · <strong>&gt;30 ms</strong> calls go choppy, games rubber-band.</div>
+      </div>
+      <div class="gdef">
+        <span class="gdef-name">Packet loss</span> · unit <code>%</code> · <strong>lower is better</strong>
+        <div>Percentage of test packets that don't arrive. Every modern application can handle a tiny amount, but loss compounds badly on long-lived connections.</div>
+        <div class="gdef-meta"><strong>0%</strong> ideal · <strong>&lt;0.1%</strong> essentially perfect · <strong>&gt;1%</strong> visible: streams stutter, Claude SSE streams drop mid-generation · <strong>&gt;3%</strong> severe (bad cable, wifi interference, ISP problem).</div>
+      </div>
+
+      <h4>Bufferbloat — how much the link clogs under load</h4>
+      <div class="gdef">
+        <span class="gdef-name">Bufferbloat (increase_ms)</span> · unit <code>ms</code> · <strong>lower is better</strong>
+        <div>RTT measured <em>while the speedtest is saturating the link</em>, minus the idle RTT. Tells you how much extra latency your router adds when traffic is heavy — the single most important metric for gaming and video calls feeling responsive while someone else is downloading. Most consumer routers without Smart Queue Management (SQM) score C–F.</div>
+        <div class="gdef-meta">Waveform's well-established grading:</div>
+        <table class="grade-table">
+          <tr><td>A+</td><td>&lt;5 ms</td><td>excellent</td></tr>
+          <tr><td>A</td><td>5–30 ms</td><td>good</td></tr>
+          <tr><td>B</td><td>30–60 ms</td><td>acceptable</td></tr>
+          <tr><td>C</td><td>60–200 ms</td><td>gaming/calls suffer</td></tr>
+          <tr><td>D</td><td>200–400 ms</td><td>poor</td></tr>
+          <tr><td>F</td><td>&gt;400 ms</td><td>link unusable under load</td></tr>
+        </table>
+      </div>
+
+      <h4>Connection setup &amp; capacity</h4>
+      <div class="gdef">
+        <span class="gdef-name">TLS handshake RTT (tls_rtt_avg_ms)</span> · unit <code>ms</code> · <strong>lower is better</strong>
+        <div>Time to set up a fresh secure HTTPS connection (the slow part before any real data flows). Typically 2–3× the raw RTT because TLS needs multiple round-trips. This is the cost an agent pays every time it opens a <em>new</em> connection.</div>
+        <div class="gdef-meta">From PL to Anthropic's edge: <strong>60–100 ms</strong> is normal.</div>
+      </div>
+      <div class="gdef">
+        <span class="gdef-name">Concurrent TLS (concurrent_tls.ok)</span> · unit <code>count / 10</code> · <strong>higher is better</strong>
+        <div>How many out of 10 simultaneous TLS connections succeeded. Tests whether your NAT/firewall caps parallel connections. Matters when running multiple Claude agents in parallel (each holds at least one long-lived connection).</div>
+        <div class="gdef-meta"><strong>10/10</strong> = no ceiling. Anything less suggests something throttling fan-out.</div>
+      </div>
+
+      <h4>Anchor targets — why we ping four different servers</h4>
+      <ul>
+        <li><code>anthropic</code> — Anthropic's own anycast edge. The number that matters <em>directly</em> for Claude Code.</li>
+        <li><code>pl_local</code> (wp.pl) — A Polish server. If this is slow but others are fine, you're slow even before international transit. If this is fast and others aren't, the problem is your ISP's peering.</li>
+        <li><code>eu_hub</code> (Frankfurt) — Where ~all Polish international traffic passes through. Bad peering here = bad everything outside Poland.</li>
+        <li><code>us_east</code> (Virginia) — Raw transatlantic transit baseline. Anthropic mostly serves you from EU edge, so this is more of a reference.</li>
+      </ul>
+
+      <h4>Workload verdicts — pass/fail per use case</h4>
+      <p>Each verdict combines several metrics into a single OK / FAIL:</p>
+      <div class="gdef">
+        <span class="gdef-name">claude</span> — upload ≥20 Mbps · packet loss &lt;1% · RTT to Anthropic &lt;200 ms<br>
+        <span class="gdef-name">streaming_hd</span> — download ≥5 Mbps<br>
+        <span class="gdef-name">streaming_4k</span> — download ≥25 Mbps · packet loss &lt;1%<br>
+        <span class="gdef-name">gaming</span> — EU-hub RTT &lt;80 ms · EU-hub jitter &lt;5 ms · bufferbloat &lt;30 ms<br>
+        <span class="gdef-name">video_calls</span> — down/up ≥5 Mbps · jitter &lt;30 ms · loss &lt;1%
+      </div>
+      <p><code>OK</code> = all conditions met · <code>FAIL &lt;reason&gt;</code> = one or more violated · <code>UNKNOWN</code> = data missing.</p>
+
+      <div class="caveat">
+        <strong>Context-dependent thresholds — flagging where these defaults could be wrong for you:</strong>
+        <ul>
+          <li>Throughput "good" bands assume a 1–2 person household. Larger household streaming 4K + gaming + cloud backups wants more.</li>
+          <li>The <code>claude</code> upload threshold (≥20 Mbps) assumes you'll run multiple parallel agents. A single agent works fine at ≥5 Mbps.</li>
+          <li>Gaming jitter &lt;5 ms is tuned for competitive FPS. Casual gaming is OK at 10–15 ms.</li>
+          <li>Loss thresholds in the top "Latest status" panel use [0.5%, 1%] — 0% is the real healthy state. Any sustained loss above 0% is worth investigating, even if the panel still shows green.</li>
+        </ul>
+      </div>
+
+      <h4>About the <code>smoke-test</code> rows in your data</h4>
+      <p><strong>Not a feature.</strong> The <code>smoke-test</code> label in your logs is leftover from initial development (running <code>./bench.sh smoke-test</code> to verify the script worked before real monitoring started). You can safely:</p>
+      <ul>
+        <li>Filter it out via the <strong>label</strong> dropdown in the header, or</li>
+        <li>Delete it: <code>rm logs/smoke-test.*</code></li>
+      </ul>
+      <p>You <em>can</em> however use a single bench run as a real smoke test any time — e.g. on a fresh machine, after editing the script, or to sanity-check a new connection before starting an overnight monitor:</p>
+      <pre style="background:#f1f3f5;padding:10px;border-radius:4px;font-size:12px;overflow-x:auto;font-family:ui-monospace,monospace">./bench.sh smoke-test
+cat logs/smoke-test.jsonl | python3 -m json.tool</pre>
+      <p><strong>Pass</strong> = the JSON line has all five workload verdicts populated, <code>throughput.down_mbps</code> and <code>up_mbps</code> are numbers (not <code>null</code>), and <code>bufferbloat.grade</code> is a letter. That means every probe ran end-to-end and parsed correctly.<br>
+      <strong>Fail</strong> = any of those fields is <code>null</code>. The script printed phase headers <code>[1/5]</code>…<code>[5/5]</code> to stderr — whichever phase didn't produce data is your culprit. Common causes: <code>speedtest</code> not installed, ping target unreachable, network down.</p>
+    </div>
+  </details>
+
   <section id="isp-compare-section" style="display:none;margin-bottom:var(--gap)">
     <div class="chart-card" style="padding:14px 18px">
       <h3>ISP comparison <span class="note" id="isp-compare-note"></span></h3>
@@ -136,22 +309,22 @@ footer{text-align:center;color:var(--muted);font-size:11px;padding:10px}
   <section class="kpi-row" id="kpi-row"></section>
 
   <section class="chart-row">
-    <div class="chart-card">
+    <div class="chart-card" title="Download/upload bandwidth from the speedtest cycle (Mbps). Higher = better.">
       <h3>throughput over time <span class="note">↓ down / ↑ up Mbps, per label</span></h3>
       <div class="canvas-wrap"><canvas id="chart-tput"></canvas></div>
     </div>
-    <div class="chart-card">
+    <div class="chart-card" title="Average round-trip time to each anchor target (ms). Lower = better. Solid line = Anthropic edge; dashed = Frankfurt hub.">
       <h3>RTT to anchor targets <span class="note">avg ms · solid=anthropic, dashed=eu_hub</span></h3>
       <div class="canvas-wrap"><canvas id="chart-rtt"></canvas></div>
     </div>
   </section>
 
   <section class="chart-row">
-    <div class="chart-card">
+    <div class="chart-card" title="Extra latency added when the link is saturated (loaded RTT minus idle RTT, ms). Lower = better. <30 ms = grade A. The single most important metric for gaming and calls feeling smooth.">
       <h3>bufferbloat under load <span class="note">ms increase (loaded − idle); &lt;30 = green-zone</span></h3>
       <div class="canvas-wrap"><canvas id="chart-bloat"></canvas></div>
     </div>
-    <div class="chart-card">
+    <div class="chart-card" title="Standard deviation of RTT to the Frankfurt anchor (ms). Lower = better. <5 ms is competitive-gaming-tight; >30 ms makes video calls choppy.">
       <h3>jitter <span class="note">stddev ms · per label, eu_hub anchor</span></h3>
       <div class="canvas-wrap"><canvas id="chart-jitter"></canvas></div>
     </div>
@@ -341,6 +514,91 @@ function renderIspComparison(runs) {
       </div>`;
   }).join('');
   grid.innerHTML = cells;
+}
+
+// ---------- Latest status panel ----------
+// rate(): map a single value to 'healthy' | 'caution' | 'problem' | 'unknown'.
+// thresholds = [cautionBoundary, problemBoundary]. Examples:
+//   rate(35, [25, 100], 'higher')  -> 35 is between 25 and 100 -> 'caution'
+//   rate(150, [100, 200], 'lower') -> 150 is between 100 and 200 -> 'caution'
+function rate(v, thresholds, direction) {
+  if (v == null || Number.isNaN(v)) return 'unknown';
+  const [a, b] = thresholds;
+  if (direction === 'lower') {
+    if (v <= a) return 'healthy';
+    if (v <= b) return 'caution';
+    return 'problem';
+  } else {
+    if (v >= b) return 'healthy';
+    if (v >= a) return 'caution';
+    return 'problem';
+  }
+}
+
+function renderStatusPanel(runs) {
+  const panel = document.getElementById('status-panel');
+  if (!runs.length) { panel.style.display = 'none'; return; }
+  panel.style.display = 'block';
+
+  const latest = [...runs].sort((a,b)=> new Date(b.ts) - new Date(a.ts))[0];
+  document.getElementById('latest-label').textContent = latest.label || '—';
+  document.getElementById('latest-time').textContent = new Date(latest.ts).toLocaleString();
+
+  // Overall health badge from verdict counts
+  const verdicts = latest.verdicts || {};
+  const okN   = WORKLOADS.filter(w => (verdicts[w] || '').startsWith('OK')).length;
+  const failN = WORKLOADS.filter(w => (verdicts[w] || '').startsWith('FAIL')).length;
+  const unkN  = WORKLOADS.length - okN - failN;
+  const badge = document.getElementById('overall-badge');
+  if (okN === WORKLOADS.length) {
+    badge.textContent = 'HEALTHY';
+    badge.className = 'status-badge healthy';
+  } else if (failN > 0) {
+    badge.textContent = `${failN} of ${WORKLOADS.length} failing`;
+    badge.className = 'status-badge problem';
+  } else {
+    badge.textContent = `${unkN} unknown`;
+    badge.className = 'status-badge unknown';
+  }
+
+  // 5 headline metrics with traffic-light coloring.
+  // Thresholds documented in the glossary; see caveat about household size.
+  const metrics = [
+    { label:'↓ Download', value: latest.throughput?.down_mbps, fmt: fmt1, unit:'Mbps',
+      status: rate(latest.throughput?.down_mbps, [25, 100], 'higher'),
+      hint: '≥25 single 4K · ≥100 comfortable for multiple users' },
+    { label:'↑ Upload', value: latest.throughput?.up_mbps, fmt: fmt1, unit:'Mbps',
+      status: rate(latest.throughput?.up_mbps, [5, 20], 'higher'),
+      hint: '≥5 video calls · ≥20 Claude/agents' },
+    { label:'RTT (Anthropic)', value: latest.rtt_ms?.anthropic?.avg, fmt: fmt0, unit:'ms',
+      status: rate(latest.rtt_ms?.anthropic?.avg, [100, 200], 'lower'),
+      hint: '<100 excellent · 100-200 OK · >200 slow' },
+    { label:'Bufferbloat', value: latest.bufferbloat?.increase_ms, fmt: fmt1,
+      unit: 'ms' + (latest.bufferbloat?.grade ? ' · ' + latest.bufferbloat.grade : ''),
+      status: rate(latest.bufferbloat?.increase_ms, [30, 60], 'lower'),
+      hint: '<30 = A · matters most for gaming/calls' },
+    { label:'Packet Loss', value: latest.rtt_ms?.anthropic?.loss_pct, fmt: fmt1, unit:'%',
+      status: rate(latest.rtt_ms?.anthropic?.loss_pct, [0.5, 1], 'lower'),
+      hint: '0% ideal · >1% breaks streams' },
+  ];
+  document.getElementById('status-metrics').innerHTML = metrics.map(m =>
+    `<div class="metric-cell ${m.status}" title="${escape(m.hint)}">
+       <div class="mc-label">${m.label}</div>
+       <div class="mc-value">${m.value != null ? m.fmt(m.value) : '—'}<span class="mc-unit"> ${escape(m.unit)}</span></div>
+       <div class="mc-hint">${escape(m.hint)}</div>
+     </div>`
+  ).join('');
+
+  // 5 workload verdicts as compact OK/FAIL pills
+  document.getElementById('status-verdicts').innerHTML = WORKLOADS.map(w => {
+    const v = verdicts[w] || '';
+    const cls = v.startsWith('OK') ? 'ok' : v.startsWith('FAIL') ? 'fail' : 'unknown';
+    const state = v.startsWith('OK') ? 'OK' : v.startsWith('FAIL') ? 'FAIL' : 'UNK';
+    return `<div class="status-verdict ${cls}" title="${escape(v || 'no data')}">
+              <div class="v-name">${w.replace('_','-')}</div>
+              <div class="v-state">${state}</div>
+            </div>`;
+  }).join('');
 }
 
 // ---------- KPI cards ----------
@@ -625,6 +883,7 @@ function restartTimer() {
 function refreshUI() {
   refreshLabelSelect();
   const runs = selectedRuns();
+  renderStatusPanel(runs);
   renderIspComparison(runs);
   renderKPIs(runs);
   renderCharts(runs);
