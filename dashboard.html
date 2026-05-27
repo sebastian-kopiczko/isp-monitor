@@ -370,7 +370,7 @@ cat logs/smoke-test.jsonl | python3 -m json.tool</pre>
 
   <section class="chart-row">
     <div class="chart-card" title="Extra latency added when the link is saturated (loaded RTT minus idle RTT, ms). Lower = better. <30 ms = grade A. The single most important metric for gaming and calls feeling smooth.">
-      <h3><span class="title-text">bufferbloat under load <span class="note">ms increase (loaded − idle); &lt;30 = green-zone</span></span><span class="dir-badge lower">Lower = Better</span></h3>
+      <h3><span class="title-text">bufferbloat under load <span class="note">ms increase (loaded − idle) · band = grade</span></span><span class="dir-badge lower">Lower = Better</span></h3>
       <div class="canvas-wrap"><canvas id="chart-bloat"></canvas></div>
     </div>
     <div class="chart-card" title="Standard deviation of RTT to the Frankfurt anchor (ms). Lower = better. <5 ms is competitive-gaming-tight; >30 ms makes video calls choppy.">
@@ -695,7 +695,37 @@ function fmt0(v) { return v == null ? '—' : Math.round(v).toLocaleString(); }
 function fmt1(v) { return v == null ? '—' : Number(v).toFixed(1); }
 
 // ---------- charts ----------
-function ensureChart(id, type, scales) {
+// Chart.js plugin: draws horizontal colored bands behind datasets.
+// Read from chart.options.plugins.gradeBands = [{from, to, color, label}].
+const gradeBandsPlugin = {
+  id: 'gradeBands',
+  beforeDatasetsDraw(chart) {
+    const bands = chart.options.plugins?.gradeBands?.bands;
+    if (!bands || !bands.length) return;
+    const {ctx, chartArea: {left, right, top, bottom}, scales: {y}} = chart;
+    ctx.save();
+    for (const b of bands) {
+      const yTop = y.getPixelForValue(b.to);
+      const yBot = y.getPixelForValue(b.from);
+      // Clamp to chart area so out-of-range bands don't bleed
+      const y1 = Math.max(top, Math.min(bottom, yTop));
+      const y2 = Math.max(top, Math.min(bottom, yBot));
+      if (y2 - y1 < 0.5) continue;
+      ctx.fillStyle = b.color;
+      ctx.fillRect(left, y1, right - left, y2 - y1);
+      if (b.label) {
+        ctx.fillStyle = b.labelColor || 'rgba(0,0,0,0.45)';
+        ctx.font = '600 10px ui-sans-serif, system-ui, sans-serif';
+        ctx.textBaseline = 'top';
+        ctx.fillText(b.label, left + 6, y1 + 3);
+      }
+    }
+    ctx.restore();
+  }
+};
+Chart.register(gradeBandsPlugin);
+
+function ensureChart(id, type, scales, extraPlugins) {
   if (state.charts[id]) return state.charts[id];
   const ctx = document.getElementById(id).getContext('2d');
   const ch = new Chart(ctx, {
@@ -703,8 +733,11 @@ function ensureChart(id, type, scales) {
     options:{
       responsive:true, maintainAspectRatio:false, animation:false,
       interaction:{mode:'index', intersect:false},
-      plugins:{legend:{position:'top',labels:{usePointStyle:true,padding:8,boxWidth:8,font:{size:11}}},
-               tooltip:{enabled:true}},
+      plugins:{
+        legend:{position:'top',labels:{usePointStyle:true,padding:8,boxWidth:8,font:{size:11}}},
+        tooltip:{enabled:true},
+        ...(extraPlugins || {}),
+      },
       scales:scales || {x:{type:'time', time:{unit:'hour'}, grid:{display:false}}, y:{beginAtZero:true}}
     }
   });
@@ -766,12 +799,23 @@ function renderCharts(runs) {
     ch.update('none');
   }
 
-  // Bufferbloat
+  // Bufferbloat — with A+/A/B/C/D/F grade bands behind the line
   {
     const ch = ensureChart('chart-bloat','line',{
       x:{type:'time', time:{unit:'hour'}, grid:{display:false}},
       y:{beginAtZero:true, title:{display:true, text:'ms increase under load'},
-         grid:{color:(c)=> c.tick.value===30?'#f0ad4e':c.tick.value===60?'#dc3545':'#eee'}},
+         grid:{color:'rgba(0,0,0,0.04)'}},
+    }, {
+      gradeBands: {
+        bands: [
+          {from: 0,   to: 5,   color: '#bbf7d0', label: 'A+'},
+          {from: 5,   to: 30,  color: '#dcfce7', label: 'A'},
+          {from: 30,  to: 60,  color: '#fef9c3', label: 'B'},
+          {from: 60,  to: 200, color: '#fed7aa', label: 'C'},
+          {from: 200, to: 400, color: '#fecaca', label: 'D'},
+          {from: 400, to: 10000, color: '#fca5a5', label: 'F'},
+        ],
+      },
     });
     const ds = labels.map((lab, i) =>
       lineDataset(lab, byLabel.get(lab).map(r => ({x:new Date(r.ts), y:r.bufferbloat?.increase_ms})), colorFor(lab, i))
