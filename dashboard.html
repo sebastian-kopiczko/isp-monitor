@@ -67,6 +67,20 @@ header h1{font-size:18px;font-weight:600}
 .kpi-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:var(--gap);margin-bottom:var(--gap)}
 .kpi-spark{margin-top:8px}
 .kpi-spark svg{display:block;width:100%;height:28px;overflow:visible}
+.kpi-spark.pulse{animation:spark-pulse 1.6s ease-out}
+@keyframes spark-pulse{
+  0%   { opacity: 1; transform: scale(1); filter: brightness(1); }
+  20%  { opacity: 1; transform: scale(1.02); filter: brightness(1.4); }
+  100% { opacity: 1; transform: scale(1); filter: brightness(1); }
+}
+#toast-tray{position:fixed;bottom:20px;right:20px;display:flex;flex-direction:column;gap:8px;z-index:9999;pointer-events:none}
+.toast{background:var(--card);color:var(--text);border:1px solid var(--border-strong);
+  border-left:3px solid var(--ok);
+  padding:10px 14px;border-radius:6px;box-shadow:0 8px 24px rgba(0,0,0,.18);
+  font-size:12px;font-family:ui-monospace,"JetBrains Mono",SFMono-Regular,Menlo,monospace;
+  opacity:0;transform:translateY(8px);transition:opacity .25s ease, transform .25s ease;
+  max-width:340px;pointer-events:auto}
+.toast.show{opacity:1;transform:translateY(0)}
 .kpi-card{background:var(--card);border-radius:var(--radius);padding:14px 18px;
   box-shadow:0 1px 3px rgba(0,0,0,.06)}
 .kpi-label{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px}
@@ -576,13 +590,58 @@ async function fetchData() {
     const r = await fetch('/api/data', {cache:'no-store'});
     if (!r.ok) throw new Error('HTTP ' + r.status);
     const d = await r.json();
+    const prevCount = state.runs.length;
+    const prevLatestTs = state.runs.length ? state.runs[state.runs.length-1].ts : null;
     state.runs = d.runs || [];
     state.lastFetch = new Date();
     setStatus('ok', `${state.runs.length} runs · updated ${formatTimeAgo(state.lastFetch)}`);
     refreshUI();
+    // Detect new run(s) and signal: toast + pulse. Skip on initial load.
+    if (prevCount > 0 && state.runs.length > prevCount) {
+      const latest = state.runs[state.runs.length-1];
+      if (latest && latest.ts !== prevLatestTs) {
+        announceNewRun(latest, state.runs.length - prevCount);
+      }
+    }
   } catch (e) {
     setStatus('error', 'fetch failed: ' + e.message);
   }
+}
+
+function announceNewRun(run, n) {
+  const dn = run.throughput?.down_mbps;
+  const up = run.throughput?.up_mbps;
+  const label = run.label || 'run';
+  const parts = [`new run · ${label}`];
+  if (dn != null) parts.push(`↓${Math.round(dn)}`);
+  if (up != null) parts.push(`↑${Math.round(up)}`);
+  if (n > 1) parts.push(`(+${n})`);
+  showToast('✓ ' + parts.join(' · '));
+  // Pulse all sparklines briefly
+  document.querySelectorAll('.kpi-spark').forEach(el => {
+    el.classList.remove('pulse');
+    void el.offsetWidth; // restart animation
+    el.classList.add('pulse');
+  });
+}
+
+function showToast(message) {
+  let tray = document.getElementById('toast-tray');
+  if (!tray) {
+    tray = document.createElement('div');
+    tray.id = 'toast-tray';
+    document.body.appendChild(tray);
+  }
+  const el = document.createElement('div');
+  el.className = 'toast';
+  el.textContent = message;
+  tray.appendChild(el);
+  // Reveal next frame for transition
+  requestAnimationFrame(() => el.classList.add('show'));
+  setTimeout(() => {
+    el.classList.remove('show');
+    setTimeout(() => el.remove(), 350);
+  }, 4500);
 }
 
 function setStatus(kind, text) {
