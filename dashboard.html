@@ -70,7 +70,8 @@ header h1{font-size:18px;font-weight:600}
 .kpi-card{background:var(--card);border-radius:var(--radius);padding:14px 18px;
   box-shadow:0 1px 3px rgba(0,0,0,.06)}
 .kpi-label{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px}
-.kpi-value{font-size:22px;font-weight:700;font-variant-numeric:tabular-nums}
+.kpi-value{font-size:26px;font-weight:700;font-variant-numeric:tabular-nums;
+  font-family:ui-monospace,"Berkeley Mono","JetBrains Mono",SFMono-Regular,Menlo,monospace;letter-spacing:-0.5px}
 .kpi-sub{font-size:11px;color:var(--muted);margin-top:2px}
 
 .chart-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(420px,1fr));gap:var(--gap);margin-bottom:var(--gap)}
@@ -102,7 +103,8 @@ header h1{font-size:18px;font-weight:600}
 .verdict-cell.ok{background:var(--ok)}
 .verdict-cell.fail{background:var(--fail)}
 .verdict-cell.unknown{background:var(--unknown)}
-.verdict-cell .pct{font-weight:700;font-size:13px;display:block}
+.verdict-cell .pct{font-weight:700;font-size:14px;display:block;font-variant-numeric:tabular-nums;
+  font-family:ui-monospace,"Berkeley Mono","JetBrains Mono",SFMono-Regular,Menlo,monospace}
 
 .table-section{background:var(--card);border-radius:var(--radius);padding:14px 18px;
   box-shadow:0 1px 3px rgba(0,0,0,.06);overflow-x:auto;margin-bottom:var(--gap)}
@@ -142,7 +144,8 @@ tr:hover{background:var(--hover)}
 .metric-cell.problem{border-color:var(--fail);background:var(--fail-tint)}
 .metric-cell.unknown{border-color:var(--unknown);background:var(--hover)}
 .metric-cell .mc-label{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:3px}
-.metric-cell .mc-value{font-size:18px;font-weight:700;font-variant-numeric:tabular-nums}
+.metric-cell .mc-value{font-size:32px;font-weight:700;font-variant-numeric:tabular-nums;
+  font-family:ui-monospace,"Berkeley Mono","JetBrains Mono",SFMono-Regular,Menlo,monospace;letter-spacing:-0.5px;line-height:1.1}
 .metric-cell .mc-unit{font-size:11px;font-weight:400;color:var(--muted);margin-left:2px}
 .metric-cell .mc-hint{font-size:10px;color:var(--muted);margin-top:2px}
 .status-verdicts{display:grid;grid-template-columns:repeat(5,1fr);gap:6px}
