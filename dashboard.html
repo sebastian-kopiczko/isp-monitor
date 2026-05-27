@@ -137,6 +137,21 @@ tr:hover{background:var(--hover)}
 .status-badge.caution{background:var(--warn)}
 .status-badge.problem{background:var(--fail)}
 .status-badge.unknown{background:var(--unknown)}
+.health-ring{display:flex;flex-direction:column;align-items:center;gap:4px}
+.health-ring svg{display:block;width:96px;height:96px;transform:rotate(-90deg)}
+.health-ring .ring-track{fill:none;stroke:var(--border-strong);stroke-width:7}
+.health-ring .ring-arc{fill:none;stroke-width:7;stroke-linecap:round;
+  stroke-dasharray:var(--ring-c, 201);stroke-dashoffset:var(--ring-c, 201);
+  transition:stroke-dashoffset .9s cubic-bezier(.22,1,.36,1), stroke .35s ease}
+.health-ring.healthy .ring-arc{stroke:var(--ok)}
+.health-ring.caution .ring-arc{stroke:var(--warn)}
+.health-ring.problem .ring-arc{stroke:var(--fail)}
+.health-ring.unknown .ring-arc{stroke:var(--unknown)}
+.health-ring .ring-center{position:relative;display:flex;flex-direction:column;align-items:center;margin-top:-72px;height:48px;pointer-events:none}
+.health-ring .ring-frac{font-family:ui-monospace,"Berkeley Mono","JetBrains Mono",SFMono-Regular,Menlo,monospace;
+  font-size:22px;font-weight:700;color:var(--text);letter-spacing:-0.5px;line-height:1}
+.health-ring .ring-frac .denom{color:var(--muted);font-size:14px}
+.health-ring .ring-status{font-size:9px;text-transform:uppercase;letter-spacing:.6px;font-weight:700;color:var(--muted);margin-top:2px}
 .status-metrics-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:12px}
 .metric-cell{padding:10px 12px;border-radius:6px;border-left:4px solid;background:var(--card)}
 .metric-cell.healthy{border-color:var(--ok);background:var(--ok-tint)}
@@ -283,7 +298,16 @@ footer{text-align:center;color:var(--muted);font-size:11px;padding:10px}
             <span id="latest-time" style="font-size:12px;color:var(--muted);font-weight:400">—</span>
           </div>
         </div>
-        <div class="status-badge unknown" id="overall-badge">—</div>
+        <div class="health-ring unknown" id="health-ring" style="--ring-c:201.06">
+          <svg viewBox="0 0 80 80" aria-hidden="true">
+            <circle class="ring-track" cx="40" cy="40" r="32"></circle>
+            <circle class="ring-arc"   cx="40" cy="40" r="32" id="health-ring-arc"></circle>
+          </svg>
+          <div class="ring-center">
+            <div class="ring-frac"><span id="health-ring-num">—</span><span class="denom">/5</span></div>
+            <div class="ring-status" id="health-ring-status">loading</div>
+          </div>
+        </div>
       </div>
       <div class="status-metrics-row" id="status-metrics"></div>
       <div class="status-verdicts" id="status-verdicts"></div>
@@ -701,17 +725,22 @@ function renderStatusPanel(runs) {
   const okN   = WORKLOADS.filter(w => (verdicts[w] || '').startsWith('OK')).length;
   const failN = WORKLOADS.filter(w => (verdicts[w] || '').startsWith('FAIL')).length;
   const unkN  = WORKLOADS.length - okN - failN;
-  const badge = document.getElementById('overall-badge');
-  if (okN === WORKLOADS.length) {
-    badge.textContent = 'HEALTHY';
-    badge.className = 'status-badge healthy';
-  } else if (failN > 0) {
-    badge.textContent = `${failN} of ${WORKLOADS.length} failing`;
-    badge.className = 'status-badge problem';
-  } else {
-    badge.textContent = `${unkN} unknown`;
-    badge.className = 'status-badge unknown';
-  }
+  // Health ring: arc proportional to okN/WORKLOADS, color by state
+  const ring = document.getElementById('health-ring');
+  const arc  = document.getElementById('health-ring-arc');
+  const num  = document.getElementById('health-ring-num');
+  const stat = document.getElementById('health-ring-status');
+  const C = 2 * Math.PI * 32; // 201.06
+  ring.style.setProperty('--ring-c', C.toFixed(2));
+  const frac = okN / WORKLOADS.length;
+  arc.style.strokeDashoffset = (C * (1 - frac)).toFixed(2);
+  num.textContent = okN;
+  let cls = 'unknown', label = '—';
+  if (okN === WORKLOADS.length) { cls='healthy'; label='healthy'; }
+  else if (failN > 0)            { cls='problem'; label=`${failN} failing`; }
+  else                            { cls='unknown'; label=`${unkN} unknown`; }
+  ring.className = 'health-ring ' + cls;
+  stat.textContent = label;
 
   // 5 headline metrics with traffic-light coloring.
   // Thresholds documented in the glossary; see caveat about household size.
