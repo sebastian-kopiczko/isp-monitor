@@ -144,6 +144,21 @@ tr:hover{background:#f8f9fa}
 .glossary-content .caveat strong{display:block;margin-bottom:4px}
 .glossary-content ul{margin-left:18px;margin-bottom:8px}
 
+.heatmap-card{background:var(--card);border-radius:var(--radius);padding:14px 18px;
+  box-shadow:0 1px 3px rgba(0,0,0,.06);margin-bottom:var(--gap)}
+.heatmap-card h3{font-size:13px;font-weight:600;margin-bottom:10px;display:flex;justify-content:space-between;align-items:center;gap:8px}
+.heatmap-card h3 .note{font-size:11px;color:var(--muted);font-weight:400}
+.heatmap-card select{font-size:11px;padding:3px 6px;border:1px solid #e1e4e8;border-radius:4px;background:#fff}
+.heatmap-wrap{overflow-x:auto}
+.heatmap-grid{display:grid;grid-template-columns:36px repeat(24, 36px);grid-auto-rows:26px;gap:2px;line-height:1}
+.heatmap-cell{padding:0;border-radius:2px;overflow:hidden;
+  font-size:9px;color:rgba(0,0,0,0.65);font-variant-numeric:tabular-nums;cursor:default;
+  white-space:nowrap;display:flex;align-items:center;justify-content:center}
+.heatmap-cell.empty{background:#f1f3f5;color:transparent}
+.heatmap-day-label{display:flex;align-items:center;justify-content:flex-end;padding-right:6px;font-size:10px;color:var(--muted);font-weight:600;text-transform:uppercase}
+.heatmap-hour-axis{display:flex;align-items:center;justify-content:center;font-size:9px;color:var(--muted)}
+.heatmap-legend{display:flex;align-items:center;gap:6px;margin-top:10px;font-size:10px;color:var(--muted)}
+.heatmap-legend .gradient{width:120px;height:8px;border-radius:4px}
 .assistant-card{background:var(--card);border-radius:var(--radius);padding:16px 20px;
   box-shadow:0 1px 3px rgba(0,0,0,.06);margin-bottom:var(--gap);border-left:3px solid #6366f1}
 .assistant-card h3{font-size:13px;font-weight:600;margin-bottom:10px;display:flex;justify-content:space-between;align-items:center;gap:8px}
@@ -381,6 +396,29 @@ cat logs/smoke-test.jsonl | python3 -m json.tool</pre>
     </div>
   </section>
 
+  <!-- Time-of-day × day-of-week heatmap -->
+  <section id="heatmap-section" class="heatmap-card" style="display:none">
+    <h3>
+      <span class="title-text">time-of-day pattern <span class="note" id="heatmap-note"></span></span>
+      <span style="display:flex;align-items:center;gap:8px">
+        <select id="heatmap-metric">
+          <option value="pass_rate">workload pass-rate</option>
+          <option value="rtt">RTT to anthropic (ms)</option>
+          <option value="bloat">bufferbloat (ms)</option>
+        </select>
+      </span>
+    </h3>
+    <div class="heatmap-wrap">
+      <div id="heatmap-grid" class="heatmap-grid"></div>
+    </div>
+    <div class="heatmap-legend">
+      <span id="heatmap-legend-min">—</span>
+      <span class="gradient" id="heatmap-gradient"></span>
+      <span id="heatmap-legend-max">—</span>
+      <span style="margin-left:auto" id="heatmap-empty-note">empty cells = no runs in that bucket</span>
+    </div>
+  </section>
+
   <section class="verdict-section">
     <h3>per-workload pass rate <span class="note" id="verdict-note"></span></h3>
     <div id="verdict-grid" class="verdict-grid"></div>
@@ -443,6 +481,7 @@ const state = {
   sortDir: 'desc',
   lastFetch: null,
   refreshTimer: null,
+  heatmapMetric: 'pass_rate',
 };
 
 // ---------- fetch ----------
@@ -1001,6 +1040,9 @@ document.getElementById('f-since').addEventListener('change', (e) => {
 document.getElementById('f-refresh').addEventListener('change', (e) => {
   state.refreshSec = Number(e.target.value); restartTimer();
 });
+document.getElementById('heatmap-metric').addEventListener('change', (e) => {
+  state.heatmapMetric = e.target.value; renderHeatmap(selectedRuns());
+});
 
 function restartTimer() {
   if (state.refreshTimer) { clearInterval(state.refreshTimer); state.refreshTimer = null; }
@@ -1008,6 +1050,111 @@ function restartTimer() {
 }
 
 // ---------- top-level refresh ----------
+// ---------- heatmap ----------
+// 7 days × 24 hours grid, cell color = aggregated metric.
+const HEATMAP_METRICS = {
+  pass_rate: {
+    label: 'workload pass-rate',
+    fmt: v => v == null ? '' : Math.round(v * 100) + '%',
+    legend: ['0%', '100%'],
+    valueOf: r => {
+      const vs = r.verdicts ? Object.values(r.verdicts) : [];
+      return vs.length ? (vs.every(v => v && v.startsWith('OK')) ? 1 : 0) : null;
+    },
+    // 0=red → 0.5=amber → 1=green
+    stops: [{at:0,c:[239,68,68]}, {at:0.5,c:[251,191,36]}, {at:1,c:[16,185,129]}],
+    cellRange: [0, 1],
+  },
+  rtt: {
+    label: 'RTT to anthropic (ms)',
+    fmt: v => v == null ? '' : Math.round(v),
+    legend: ['0 ms', '200+ ms'],
+    valueOf: r => r.rtt_ms?.anthropic?.avg ?? null,
+    stops: [{at:0,c:[16,185,129]}, {at:80,c:[251,191,36]}, {at:200,c:[239,68,68]}],
+    cellRange: [0, 200],
+  },
+  bloat: {
+    label: 'bufferbloat (ms)',
+    fmt: v => v == null ? '' : Math.round(v),
+    legend: ['0 ms', '200+ ms'],
+    valueOf: r => r.bufferbloat?.increase_ms ?? null,
+    stops: [{at:0,c:[16,185,129]}, {at:30,c:[251,191,36]}, {at:200,c:[239,68,68]}],
+    cellRange: [0, 200],
+  },
+};
+
+function interpColor(stops, v) {
+  if (v <= stops[0].at) return `rgb(${stops[0].c.join(',')})`;
+  for (let i = 0; i < stops.length - 1; i++) {
+    const a = stops[i], b = stops[i+1];
+    if (v <= b.at) {
+      const t = (v - a.at) / (b.at - a.at);
+      const c = a.c.map((ac, j) => Math.round(ac + (b.c[j]-ac) * t));
+      return `rgb(${c.join(',')})`;
+    }
+  }
+  return `rgb(${stops[stops.length-1].c.join(',')})`;
+}
+
+function renderHeatmap(runs) {
+  const section = document.getElementById('heatmap-section');
+  const metricKey = state.heatmapMetric || 'pass_rate';
+  const m = HEATMAP_METRICS[metricKey];
+  if (!runs.length) { section.style.display = 'none'; return; }
+  section.style.display = 'block';
+
+  // Bucket by ISO weekday (Mon=0..Sun=6) × hour (0..23)
+  const buckets = Array.from({length: 7}, () => Array.from({length: 24}, () => []));
+  for (const r of runs) {
+    if (!r.ts) continue;
+    const d = new Date(r.ts);
+    const jsDow = d.getDay();              // 0=Sun..6=Sat
+    const dow = (jsDow + 6) % 7;           // 0=Mon..6=Sun
+    const hour = d.getHours();
+    const v = m.valueOf(r);
+    if (v != null) buckets[dow][hour].push(v);
+  }
+
+  // Build cells: header row (hour labels), then 7 rows
+  const days = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+  const cells = [];
+  cells.push('<div class="heatmap-day-label"></div>');
+  for (let h = 0; h < 24; h++) {
+    cells.push(`<div class="heatmap-hour-axis">${h%3===0?h:''}</div>`);
+  }
+  for (let d = 0; d < 7; d++) {
+    cells.push(`<div class="heatmap-day-label">${days[d]}</div>`);
+    for (let h = 0; h < 24; h++) {
+      const arr = buckets[d][h];
+      if (!arr.length) {
+        cells.push(`<div class="heatmap-cell empty" title="${days[d]} ${h}h · no runs"></div>`);
+        continue;
+      }
+      const mean = arr.reduce((a,b)=>a+b, 0) / arr.length;
+      const bg = interpColor(m.stops, Math.max(m.cellRange[0], Math.min(m.cellRange[1], mean)));
+      const txt = m.fmt(mean);
+      cells.push(`<div class="heatmap-cell" style="background:${bg}"
+        title="${days[d]} ${h}h · n=${arr.length} · ${m.label}: ${txt}">${txt}</div>`);
+    }
+  }
+  document.getElementById('heatmap-grid').innerHTML = cells.join('');
+
+  // Legend gradient
+  const lstops = m.stops.map(s => {
+    const pct = ((s.at - m.cellRange[0]) / (m.cellRange[1] - m.cellRange[0])) * 100;
+    return `rgb(${s.c.join(',')}) ${pct}%`;
+  });
+  document.getElementById('heatmap-gradient').style.background = `linear-gradient(to right, ${lstops.join(', ')})`;
+  document.getElementById('heatmap-legend-min').textContent = m.legend[0];
+  document.getElementById('heatmap-legend-max').textContent = m.legend[1];
+
+  // Note: how many days have data
+  const daysWith = buckets.filter(row => row.some(arr => arr.length)).length;
+  const totalCells = buckets.flat().filter(arr => arr.length).length;
+  document.getElementById('heatmap-note').textContent =
+    `${days.length}-day × 24-hour grid · ${daysWith} day${daysWith===1?'':'s'} with data · ${totalCells}/${7*24} cells`;
+}
+
 function refreshUI() {
   refreshLabelSelect();
   const runs = selectedRuns();
@@ -1015,6 +1162,7 @@ function refreshUI() {
   renderIspComparison(runs);
   renderKPIs(runs);
   renderCharts(runs);
+  renderHeatmap(runs);
   renderVerdicts(runs);
   renderTable(runs);
 }
