@@ -142,6 +142,27 @@ tr:hover{background:#f8f9fa}
 .glossary-content .caveat strong{display:block;margin-bottom:4px}
 .glossary-content ul{margin-left:18px;margin-bottom:8px}
 
+.assistant-card{background:var(--card);border-radius:var(--radius);padding:16px 20px;
+  box-shadow:0 1px 3px rgba(0,0,0,.06);margin-bottom:var(--gap);border-left:3px solid #6366f1}
+.assistant-card h3{font-size:13px;font-weight:600;margin-bottom:10px;display:flex;justify-content:space-between;align-items:center;gap:8px}
+.assistant-card h3 .ai-meta{font-size:11px;color:var(--muted);font-weight:400}
+.assistant-card .ai-narrative{font-size:14px;line-height:1.5;margin-bottom:14px;color:var(--text)}
+.assistant-card .ai-section-label{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px;font-weight:600}
+.assistant-card .ai-anomalies{list-style:none;margin:0 0 14px 0;padding:0}
+.assistant-card .ai-anomalies li{padding:6px 0;border-bottom:1px solid #f1f3f5;font-size:13px}
+.assistant-card .ai-anomalies li:last-child{border-bottom:none}
+.assistant-card .ai-anomalies .a-ts{font-family:ui-monospace,"SF Mono",monospace;font-size:11px;color:var(--muted);margin-right:8px}
+.assistant-card .ai-anomalies .a-hyp{display:block;color:var(--muted);font-size:12px;margin-top:2px}
+.assistant-card .ai-recs{margin:0 0 14px 18px;font-size:13px;line-height:1.6}
+.assistant-card .ai-ask{display:flex;gap:8px;margin-top:12px;border-top:1px solid #f1f3f5;padding-top:12px}
+.assistant-card .ai-ask input{flex:1;padding:8px 10px;border:1px solid #e1e4e8;border-radius:6px;font-size:13px;font-family:inherit}
+.assistant-card .ai-ask button{padding:8px 14px;background:#6366f1;color:#fff;border:none;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer}
+.assistant-card .ai-ask button:hover{background:#4f46e5}
+.assistant-card .ai-ask button:disabled{background:#a5a5a5;cursor:wait}
+.assistant-card .ai-empty{color:var(--muted);font-style:italic;font-size:13px}
+.assistant-card .ai-error{color:var(--fail);font-size:13px;background:#fef2f2;border-left:3px solid var(--fail);padding:8px 12px;border-radius:4px}
+.assistant-card .ai-refresh{background:none;border:1px solid #e1e4e8;color:var(--muted);font-size:11px;padding:4px 10px;border-radius:4px;cursor:pointer}
+.assistant-card .ai-refresh:hover{border-color:#6366f1;color:#6366f1}
 footer{text-align:center;color:var(--muted);font-size:11px;padding:10px}
 @media (max-width:768px){
   .kpi-row{grid-template-columns:repeat(2,1fr)}
@@ -204,6 +225,22 @@ footer{text-align:center;color:var(--muted);font-size:11px;padding:10px}
       </div>
       <div class="status-metrics-row" id="status-metrics"></div>
       <div class="status-verdicts" id="status-verdicts"></div>
+    </div>
+  </section>
+
+  <!-- AI-powered Network Health Assistant -->
+  <section id="assistant-card" class="assistant-card" style="display:none">
+    <h3>
+      <span>🤖 Network Health Assistant</span>
+      <span class="ai-meta">
+        <span id="ai-meta-text"></span>
+        <button class="ai-refresh" id="ai-refresh" title="Regenerate diagnosis">↻ refresh</button>
+      </span>
+    </h3>
+    <div id="ai-body"></div>
+    <div class="ai-ask">
+      <input type="text" id="ai-ask-input" placeholder="Ask anything about your connection — e.g. &quot;why was upload slow at 14:00?&quot;" />
+      <button id="ai-ask-send">Send</button>
     </div>
   </section>
 
@@ -904,8 +941,112 @@ function refreshUI() {
   renderTable(runs);
 }
 
+// ---------- Network Health Assistant ----------
+const assistantState = {lastLatestTs: null, busy: false};
+
+function renderAssistant(data) {
+  const card = document.getElementById('assistant-card');
+  const body = document.getElementById('ai-body');
+  const meta = document.getElementById('ai-meta-text');
+  card.style.display = 'block';
+
+  if (!data || data.narrative === null) {
+    body.innerHTML = '<div class="ai-empty">No diagnosis yet — click ↻ refresh to generate one.</div>';
+    meta.textContent = '';
+    return;
+  }
+  if (data.error) {
+    const msg = data.message || data.error;
+    body.innerHTML = `<div class="ai-error">${escapeHtml(msg)}</div>`;
+    meta.textContent = '';
+    return;
+  }
+
+  const anomaliesHtml = (data.anomalies && data.anomalies.length)
+    ? `<div class="ai-section-label">Anomalies</div>
+       <ul class="ai-anomalies">${data.anomalies.map(a => `
+         <li><span class="a-ts">${escapeHtml(a.ts || '')}</span>${escapeHtml(a.summary || '')}
+             <span class="a-hyp">${escapeHtml(a.hypothesis || '')}</span></li>`).join('')}</ul>`
+    : '';
+
+  const recsHtml = (data.recommendations && data.recommendations.length)
+    ? `<div class="ai-section-label">Recommendations</div>
+       <ul class="ai-recs">${data.recommendations.map(r => `<li>${escapeHtml(r)}</li>`).join('')}</ul>`
+    : '';
+
+  body.innerHTML = `<div class="ai-narrative">${escapeHtml(data.narrative)}</div>${anomaliesHtml}${recsHtml}`;
+
+  const parts = [];
+  if (data._run_count) parts.push(`${data._run_count} runs · ${data._window_hours}h window`);
+  if (data._cached) parts.push('cached');
+  else if (data._generated_at) parts.push('just now');
+  meta.textContent = parts.join(' · ');
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+async function fetchLatestDiagnosis() {
+  try {
+    const r = await fetch('/api/diagnose/latest', {cache:'no-store'});
+    if (!r.ok) return;
+    const d = await r.json();
+    renderAssistant(d);
+  } catch (e) { /* silent — card stays empty */ }
+}
+
+async function refreshDiagnosis(question) {
+  if (assistantState.busy) return;
+  assistantState.busy = true;
+  const btn = document.getElementById('ai-refresh');
+  const sendBtn = document.getElementById('ai-ask-send');
+  btn.disabled = true; sendBtn.disabled = true;
+  document.getElementById('ai-meta-text').textContent = 'analyzing…';
+  try {
+    const body = {window_hours: 24};
+    if (question) body.question = question;
+    const r = await fetch('/api/diagnose', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify(body),
+    });
+    const d = await r.json();
+    renderAssistant(d);
+  } catch (e) {
+    renderAssistant({error: 'fetch_failed', message: 'Network error: ' + e.message});
+  } finally {
+    assistantState.busy = false;
+    btn.disabled = false; sendBtn.disabled = false;
+  }
+}
+
+document.getElementById('ai-refresh').addEventListener('click', () => refreshDiagnosis(null));
+document.getElementById('ai-ask-send').addEventListener('click', () => {
+  const inp = document.getElementById('ai-ask-input');
+  const q = inp.value.trim();
+  if (!q) return;
+  refreshDiagnosis(q);
+  inp.value = '';
+});
+document.getElementById('ai-ask-input').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') document.getElementById('ai-ask-send').click();
+});
+
+// Auto-load cached narrative when new data arrives with a new latest_ts.
+const originalRefreshUI = refreshUI;
+refreshUI = function() {
+  originalRefreshUI();
+  const latest = state.runs.length ? state.runs[state.runs.length - 1].ts : null;
+  if (latest && latest !== assistantState.lastLatestTs) {
+    assistantState.lastLatestTs = latest;
+    fetchLatestDiagnosis();
+  }
+};
+
 // ---------- boot ----------
 fetchData();
+fetchLatestDiagnosis();
 restartTimer();
 </script>
 </body>
