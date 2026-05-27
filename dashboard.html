@@ -35,6 +35,8 @@ header h1{font-size:18px;font-weight:600}
 .refresh-status .dot.error{background:#f44336}
 
 .kpi-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:var(--gap);margin-bottom:var(--gap)}
+.kpi-spark{margin-top:8px}
+.kpi-spark svg{display:block;width:100%;height:28px;overflow:visible}
 .kpi-card{background:var(--card);border-radius:var(--radius);padding:14px 18px;
   box-shadow:0 1px 3px rgba(0,0,0,.06)}
 .kpi-label{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px}
@@ -660,23 +662,55 @@ function renderKPIs(runs) {
   const byLabel = groupByLabel(runs);
   const latestPerLabel = [...byLabel.entries()].map(([label, arr]) => ({label, run: arr[arr.length-1]}));
 
-  // Overall KPIs
-  const downs = runs.map(r => r.throughput?.down_mbps).filter(v => v != null);
-  const ups   = runs.map(r => r.throughput?.up_mbps).filter(v => v != null);
-  const bloats= runs.map(r => r.bufferbloat?.increase_ms).filter(v => v != null);
-  const rttAn = runs.map(r => r.rtt_ms?.anthropic?.avg).filter(v => v != null);
+  // Overall KPIs — collect time-series for sparklines too
+  const sorted = [...runs].sort((a,b)=>(a.ts||'').localeCompare(b.ts||''));
+  const seriesDown = sorted.map(r => r.throughput?.down_mbps).filter(v => v != null);
+  const seriesUp   = sorted.map(r => r.throughput?.up_mbps).filter(v => v != null);
+  const seriesBlo  = sorted.map(r => r.bufferbloat?.increase_ms).filter(v => v != null);
+  const seriesRtt  = sorted.map(r => r.rtt_ms?.anthropic?.avg).filter(v => v != null);
 
   const cards = [
-    {label:'runs in window', value:runs.length, sub:`${byLabel.size} label${byLabel.size===1?'':'s'}`, dir:null},
-    {label:'median ↓ Mbps', value:fmt1(median(downs)), sub:`p10=${fmt0(pct(downs,10))} p90=${fmt0(pct(downs,90))}`, dir:'higher'},
-    {label:'median ↑ Mbps', value:fmt1(median(ups)),   sub:`p10=${fmt0(pct(ups,10))} p90=${fmt0(pct(ups,90))}`, dir:'higher'},
-    {label:'median bufferbloat ms', value:fmt1(median(bloats)), sub:`max ${fmt1(Math.max(...bloats, 0))}`, dir:'lower'},
-    {label:'median RTT to anthropic', value:fmt0(median(rttAn))+' ms', sub:`p90=${fmt0(pct(rttAn,90))} ms`, dir:'lower'},
+    {label:'runs in window', value:runs.length, sub:`${byLabel.size} label${byLabel.size===1?'':'s'}`, dir:null, series:null},
+    {label:'median ↓ Mbps', value:fmt1(median(seriesDown)), sub:`p10=${fmt0(pct(seriesDown,10))} p90=${fmt0(pct(seriesDown,90))}`, dir:'higher', series:seriesDown},
+    {label:'median ↑ Mbps', value:fmt1(median(seriesUp)),   sub:`p10=${fmt0(pct(seriesUp,10))} p90=${fmt0(pct(seriesUp,90))}`, dir:'higher', series:seriesUp},
+    {label:'median bufferbloat ms', value:fmt1(median(seriesBlo)), sub:`max ${fmt1(Math.max(...seriesBlo, 0))}`, dir:'lower', series:seriesBlo},
+    {label:'median RTT to anthropic', value:fmt0(median(seriesRtt))+' ms', sub:`p90=${fmt0(pct(seriesRtt,90))} ms`, dir:'lower', series:seriesRtt},
   ];
   row.innerHTML = cards.map(c => {
     const badge = c.dir ? `<span class="dir-badge ${c.dir}">${c.dir==='higher'?'Higher':'Lower'}</span>` : '';
-    return `<div class="kpi-card"><div class="kpi-label">${c.label}${badge}</div><div class="kpi-value">${c.value}</div><div class="kpi-sub">${c.sub}</div></div>`;
+    const spark = c.series ? sparklineSVG(c.series, c.dir) : '';
+    return `<div class="kpi-card"><div class="kpi-label">${c.label}${badge}</div><div class="kpi-value">${c.value}</div><div class="kpi-sub">${c.sub}</div>${spark}</div>`;
   }).join('');
+}
+
+// Inline sparkline as SVG. dir='higher' → green if last point is above median; red if below.
+// dir='lower' inverts. Returns empty string for <2 points.
+function sparklineSVG(series, dir) {
+  if (!series || series.length < 2) return '';
+  const w = 100, h = 28, pad = 1.5;
+  const min = Math.min(...series), max = Math.max(...series);
+  const range = max - min || 1;
+  const last = series[series.length - 1];
+  const med = median(series);
+  // "good" iff direction-aligned: higher=better wants last >= median; lower=better wants last <= median
+  const good = dir === 'higher' ? last >= med : last <= med;
+  const stroke = good ? '#10b981' : '#ef4444';
+  const fill   = good ? 'rgba(16,185,129,0.12)' : 'rgba(239,68,68,0.10)';
+  const dx = (w - pad*2) / (series.length - 1);
+  const pts = series.map((v,i) => {
+    const x = pad + i*dx;
+    const y = h - pad - (v - min) / range * (h - pad*2);
+    return `${x.toFixed(1)},${y.toFixed(1)}`;
+  });
+  const path = `M${pts[0]} L${pts.slice(1).join(' L')}`;
+  const area = `${path} L${(pad + (series.length-1)*dx).toFixed(1)},${(h-pad).toFixed(1)} L${pad.toFixed(1)},${(h-pad).toFixed(1)} Z`;
+  const lx = (pad + (series.length-1)*dx).toFixed(1);
+  const ly = (h - pad - (last - min) / range * (h - pad*2)).toFixed(1);
+  return `<div class="kpi-spark"><svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none">
+    <path d="${area}" fill="${fill}" stroke="none" />
+    <path d="${path}" fill="none" stroke="${stroke}" stroke-width="1.2" stroke-linejoin="round" vector-effect="non-scaling-stroke" />
+    <circle cx="${lx}" cy="${ly}" r="1.8" fill="${stroke}" />
+  </svg></div>`;
 }
 
 function median(arr) {
