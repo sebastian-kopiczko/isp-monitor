@@ -144,8 +144,17 @@ tr:hover{background:#f8f9fa}
 .glossary-content .caveat strong{display:block;margin-bottom:4px}
 .glossary-content ul{margin-left:18px;margin-bottom:8px}
 
-.heatmap-card{background:var(--card);border-radius:var(--radius);padding:14px 18px;
+.heatmap-card,.dist-card{background:var(--card);border-radius:var(--radius);padding:14px 18px;
   box-shadow:0 1px 3px rgba(0,0,0,.06);margin-bottom:var(--gap)}
+.dist-card h3{font-size:13px;font-weight:600;margin-bottom:10px;display:flex;justify-content:space-between;align-items:center;gap:8px}
+.dist-card h3 .note{font-size:11px;color:var(--muted);font-weight:400}
+.dist-card select{font-size:11px;padding:3px 6px;border:1px solid #e1e4e8;border-radius:4px;background:#fff}
+.dist-row{display:grid;grid-template-columns:120px 1fr;align-items:center;gap:8px;margin-bottom:4px}
+.dist-row .lbl{font-size:11px;color:var(--muted);font-weight:600;text-align:right;padding-right:6px;font-variant-numeric:tabular-nums}
+.dist-row .ridge{position:relative;height:48px}
+.dist-row .ridge svg{display:block;width:100%;height:100%;overflow:visible}
+.dist-axis{display:grid;grid-template-columns:120px 1fr;gap:8px;font-size:10px;color:var(--muted);margin-top:6px}
+.dist-axis .ticks{display:flex;justify-content:space-between}
 .heatmap-card h3{font-size:13px;font-weight:600;margin-bottom:10px;display:flex;justify-content:space-between;align-items:center;gap:8px}
 .heatmap-card h3 .note{font-size:11px;color:var(--muted);font-weight:400}
 .heatmap-card select{font-size:11px;padding:3px 6px;border:1px solid #e1e4e8;border-radius:4px;background:#fff}
@@ -419,6 +428,22 @@ cat logs/smoke-test.jsonl | python3 -m json.tool</pre>
     </div>
   </section>
 
+  <!-- Distribution ridgelines per label -->
+  <section id="dist-section" class="dist-card" style="display:none">
+    <h3>
+      <span class="title-text">distributions <span class="note" id="dist-note"></span></span>
+      <select id="dist-metric">
+        <option value="down">↓ download Mbps</option>
+        <option value="up">↑ upload Mbps</option>
+        <option value="rtt">RTT to anthropic (ms)</option>
+        <option value="bloat">bufferbloat (ms)</option>
+        <option value="jitter">jitter eu_hub (ms)</option>
+      </select>
+    </h3>
+    <div id="dist-rows"></div>
+    <div class="dist-axis"><div></div><div class="ticks" id="dist-ticks"></div></div>
+  </section>
+
   <section class="verdict-section">
     <h3>per-workload pass rate <span class="note" id="verdict-note"></span></h3>
     <div id="verdict-grid" class="verdict-grid"></div>
@@ -482,6 +507,7 @@ const state = {
   lastFetch: null,
   refreshTimer: null,
   heatmapMetric: 'pass_rate',
+  distMetric: 'down',
 };
 
 // ---------- fetch ----------
@@ -1043,6 +1069,9 @@ document.getElementById('f-refresh').addEventListener('change', (e) => {
 document.getElementById('heatmap-metric').addEventListener('change', (e) => {
   state.heatmapMetric = e.target.value; renderHeatmap(selectedRuns());
 });
+document.getElementById('dist-metric').addEventListener('change', (e) => {
+  state.distMetric = e.target.value; renderRidgelines(selectedRuns());
+});
 
 function restartTimer() {
   if (state.refreshTimer) { clearInterval(state.refreshTimer); state.refreshTimer = null; }
@@ -1155,6 +1184,109 @@ function renderHeatmap(runs) {
     `${days.length}-day × 24-hour grid · ${daysWith} day${daysWith===1?'':'s'} with data · ${totalCells}/${7*24} cells`;
 }
 
+// ---------- ridgeline distributions ----------
+const DIST_METRICS = {
+  down:   {label:'↓ Mbps', unit:'Mbps', valueOf:r=>r.throughput?.down_mbps, fmt:v=>Math.round(v)},
+  up:     {label:'↑ Mbps', unit:'Mbps', valueOf:r=>r.throughput?.up_mbps, fmt:v=>Math.round(v)},
+  rtt:    {label:'RTT ms', unit:'ms',   valueOf:r=>r.rtt_ms?.anthropic?.avg, fmt:v=>Math.round(v)},
+  bloat:  {label:'bloat ms', unit:'ms', valueOf:r=>r.bufferbloat?.increase_ms, fmt:v=>v.toFixed(1)},
+  jitter: {label:'jitter ms', unit:'ms', valueOf:r=>r.rtt_ms?.eu_hub?.jitter, fmt:v=>v.toFixed(1)},
+};
+
+// Gaussian KDE with Silverman-style bandwidth
+function kde(values, gridX) {
+  const n = values.length;
+  if (n < 2) return gridX.map(() => 0);
+  const mean = values.reduce((a,b)=>a+b,0) / n;
+  const variance = values.reduce((s,v)=>s+(v-mean)**2,0) / n;
+  const stddev = Math.sqrt(variance) || 1;
+  // Silverman's rule of thumb, bounded
+  const h = Math.max(stddev * Math.pow(4/(3*n), 1/5), (Math.max(...values)-Math.min(...values))/50, 1e-6);
+  const inv2h2 = 1 / (2 * h * h);
+  const norm = 1 / (n * h * Math.sqrt(2 * Math.PI));
+  return gridX.map(x => {
+    let sum = 0;
+    for (const v of values) sum += Math.exp(-((x - v) ** 2) * inv2h2);
+    return sum * norm;
+  });
+}
+
+function renderRidgelines(runs) {
+  const section = document.getElementById('dist-section');
+  const rowsEl = document.getElementById('dist-rows');
+  const ticksEl = document.getElementById('dist-ticks');
+  if (!runs.length) { section.style.display = 'none'; return; }
+  const metricKey = state.distMetric || 'down';
+  const m = DIST_METRICS[metricKey];
+  const byLabel = groupByLabel(runs);
+  const labels = [...byLabel.keys()].sort();
+
+  // Collect series per label
+  const seriesByLabel = labels.map(lab => ({
+    label: lab,
+    values: byLabel.get(lab).map(m.valueOf).filter(v => v != null && !isNaN(v)),
+  })).filter(s => s.values.length >= 2);
+
+  if (!seriesByLabel.length) { section.style.display = 'none'; return; }
+  section.style.display = 'block';
+
+  // Shared x-axis: min/max of all values, with a 5% margin
+  const allVals = seriesByLabel.flatMap(s => s.values);
+  const minV = Math.min(...allVals);
+  const maxV = Math.max(...allVals);
+  const margin = (maxV - minV) * 0.05 || 1;
+  const xMin = Math.max(0, minV - margin);
+  const xMax = maxV + margin;
+  const N = 120;
+  const gridX = Array.from({length: N}, (_, i) => xMin + (xMax - xMin) * i / (N - 1));
+
+  // Compute KDE per series, share a max-density scale across rows so heights are comparable
+  const ridges = seriesByLabel.map((s, i) => {
+    const ys = kde(s.values, gridX);
+    return {label: s.label, n: s.values.length, ys, color: colorFor(s.label, i),
+            med: median(s.values), values: s.values};
+  });
+  const maxY = Math.max(...ridges.flatMap(r => r.ys), 1e-9);
+
+  // Build SVG per ridge — width 100%, viewBox 0 0 1000 48
+  const W = 1000, H = 48, pad = 1;
+  rowsEl.innerHTML = ridges.map(r => {
+    const pts = r.ys.map((y, i) => {
+      const px = (i / (N - 1)) * (W - pad*2) + pad;
+      const py = H - pad - (y / maxY) * (H - pad*2);
+      return [px, py];
+    });
+    const area = `M${pts[0][0]},${H-pad} L` +
+      pts.map(p => `${p[0].toFixed(1)},${p[1].toFixed(1)}`).join(' L') +
+      ` L${pts[pts.length-1][0]},${H-pad} Z`;
+    const line = `M${pts.map(p => `${p[0].toFixed(1)},${p[1].toFixed(1)}`).join(' L')}`;
+    // Median tick mark
+    const medX = pad + ((r.med - xMin) / (xMax - xMin)) * (W - pad*2);
+    const fill = r.color + '40'; // alpha
+    return `<div class="dist-row">
+      <div class="lbl" title="${escape(r.label)} · n=${r.n} · median ${m.fmt(r.med)}">${escape(r.label)}<br><span style="font-weight:400;color:var(--muted)">${m.fmt(r.med)} ${m.unit} · n=${r.n}</span></div>
+      <div class="ridge">
+        <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">
+          <path d="${area}" fill="${fill}" stroke="none" />
+          <path d="${line}" fill="none" stroke="${r.color}" stroke-width="1.4" vector-effect="non-scaling-stroke" />
+          <line x1="${medX}" y1="${pad}" x2="${medX}" y2="${H-pad}" stroke="${r.color}" stroke-width="1" stroke-dasharray="3,3" vector-effect="non-scaling-stroke" />
+        </svg>
+      </div>
+    </div>`;
+  }).join('');
+
+  // Tick labels along the x axis (5 ticks)
+  const tickN = 5;
+  const ticks = Array.from({length: tickN}, (_, i) => {
+    const v = xMin + (xMax - xMin) * i / (tickN - 1);
+    return `<span>${m.fmt(v)}</span>`;
+  });
+  ticksEl.innerHTML = ticks.join('');
+
+  document.getElementById('dist-note').textContent =
+    `${ridges.length} label${ridges.length===1?'':'s'} · dashed line = median · ${m.label}`;
+}
+
 function refreshUI() {
   refreshLabelSelect();
   const runs = selectedRuns();
@@ -1163,6 +1295,7 @@ function refreshUI() {
   renderKPIs(runs);
   renderCharts(runs);
   renderHeatmap(runs);
+  renderRidgelines(runs);
   renderVerdicts(runs);
   renderTable(runs);
 }
