@@ -4,14 +4,41 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>isp-monitor dashboard</title>
+<script>
+// Apply saved theme synchronously before paint to avoid a flash.
+(function(){
+  try {
+    const saved = localStorage.getItem('ispmon.theme');
+    const theme = saved === 'light' ? 'light' : 'dark'; // default dark
+    document.documentElement.setAttribute('data-theme', theme);
+  } catch(e) {
+    document.documentElement.setAttribute('data-theme', 'dark');
+  }
+})();
+</script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.1" integrity="sha384-jb8JQMbMoBUzgWatfe6COACi2ljcDdZQ2OxczGA3bGNeWe+6DChMTBJemed7ZnvJ" crossorigin="anonymous"></script>
 <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0" integrity="sha384-cVMg8E3QFwTvGCDuK+ET4PD341jF3W8nO1auiXfuZNQkzbUUiBGLsIQUE+b1mxws" crossorigin="anonymous"></script>
 <style>
 :root{
   --bg:#f4f5f7; --card:#fff; --hdr:#1a1a2e; --text:#1f2328; --muted:#6c757d;
+  --border:#e6e6e6; --border-strong:#dee2e6; --hover:#f8f9fa; --input-bg:#fff;
+  --accent:#3b82f6;
   --c1:#4C72B0; --c2:#DD8452; --c3:#55A868; --c4:#C44E52; --c5:#8172B3; --c6:#937860;
   --ok:#28a745; --warn:#f0ad4e; --fail:#dc3545; --unknown:#adb5bd;
+  --ok-tint:#f0fdf4; --warn-tint:#fffbeb; --fail-tint:#fef2f2;
   --gap:14px; --radius:8px;
+  --shadow:0 1px 3px rgba(0,0,0,.06);
+  color-scheme: light;
+}
+:root[data-theme="dark"]{
+  --bg:#0b0b0e; --card:#161618; --hdr:#101013; --text:#e4e4e7; --muted:#8a8a93;
+  --border:#26262a; --border-strong:#33333a; --hover:#1c1c20; --input-bg:#1c1c20;
+  --accent:#a3e635;
+  /* Brighten chart colors for dark backgrounds */
+  --c1:#7AA2E0; --c2:#F0A26B; --c3:#7BCB87; --c4:#E07171; --c5:#A89BD8; --c6:#BAA28A;
+  --ok-tint:rgba(40,167,69,.12); --warn-tint:rgba(240,173,78,.12); --fail-tint:rgba(220,53,69,.14);
+  --shadow:0 1px 3px rgba(0,0,0,.4);
+  color-scheme: dark;
 }
 *{margin:0;padding:0;box-sizing:border-box}
 body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
@@ -22,6 +49,9 @@ header{background:var(--hdr);color:#fff;padding:14px 20px;border-radius:var(--ra
   flex-wrap:wrap;gap:12px}
 header h1{font-size:18px;font-weight:600}
 .subtitle{font-size:12px;color:rgba(255,255,255,.7);margin-top:2px}
+.theme-toggle{background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.15);
+  color:#fff;border-radius:6px;padding:5px 8px;cursor:pointer;font-size:14px;line-height:1}
+.theme-toggle:hover{background:rgba(255,255,255,.15)}
 .filters{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
 .filter-group{display:flex;align-items:center;gap:6px}
 .filter-group label{font-size:11px;color:rgba(255,255,255,.7);text-transform:uppercase;letter-spacing:.5px}
@@ -79,11 +109,11 @@ header h1{font-size:18px;font-weight:600}
 .table-section h3{font-size:13px;font-weight:600;margin-bottom:10px;display:flex;justify-content:space-between}
 .table-section .note{font-size:11px;color:var(--muted);font-weight:400}
 table{width:100%;border-collapse:collapse;font-size:12px;font-variant-numeric:tabular-nums}
-th{text-align:left;padding:8px 8px;border-bottom:2px solid #dee2e6;color:var(--muted);
+th{text-align:left;padding:8px 8px;border-bottom:2px solid var(--border-strong);color:var(--muted);
   font-weight:600;font-size:10px;text-transform:uppercase;letter-spacing:.5px;user-select:none;cursor:pointer;white-space:nowrap}
-th:hover{color:var(--text);background:#f8f9fa}
+th:hover{color:var(--text);background:var(--hover)}
 td{padding:6px 8px;border-bottom:1px solid #f0f0f0}
-tr:hover{background:#f8f9fa}
+tr:hover{background:var(--hover)}
 .badge{display:inline-block;padding:2px 6px;border-radius:3px;font-size:10px;font-weight:600;color:#fff}
 .badge.ok{background:var(--ok)}.badge.fail{background:var(--fail)}.badge.unknown{background:var(--unknown)}
 .grade{display:inline-block;width:24px;height:20px;line-height:20px;text-align:center;border-radius:3px;
@@ -99,18 +129,18 @@ tr:hover{background:#f8f9fa}
 .status-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;flex-wrap:wrap;gap:12px}
 .status-title-block .status-title{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px}
 .status-title-block .status-meta{font-size:16px;font-weight:600;margin-top:2px}
-.status-title-block .status-meta .label-pill{display:inline-block;padding:2px 8px;background:#e9ecef;border-radius:3px;font-size:13px;margin-right:6px}
+.status-title-block .status-meta .label-pill{display:inline-block;padding:2px 8px;background:var(--hover);border-radius:3px;font-size:13px;margin-right:6px}
 .status-badge{padding:8px 16px;border-radius:6px;font-weight:700;font-size:13px;text-transform:uppercase;letter-spacing:.5px;color:#fff}
 .status-badge.healthy{background:var(--ok)}
 .status-badge.caution{background:var(--warn)}
 .status-badge.problem{background:var(--fail)}
 .status-badge.unknown{background:var(--unknown)}
 .status-metrics-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:12px}
-.metric-cell{padding:10px 12px;border-radius:6px;border-left:4px solid;background:#fff}
-.metric-cell.healthy{border-color:var(--ok);background:#f0fdf4}
-.metric-cell.caution{border-color:var(--warn);background:#fffbeb}
-.metric-cell.problem{border-color:var(--fail);background:#fef2f2}
-.metric-cell.unknown{border-color:var(--unknown);background:#f8f9fa}
+.metric-cell{padding:10px 12px;border-radius:6px;border-left:4px solid;background:var(--card)}
+.metric-cell.healthy{border-color:var(--ok);background:var(--ok-tint)}
+.metric-cell.caution{border-color:var(--warn);background:var(--warn-tint)}
+.metric-cell.problem{border-color:var(--fail);background:var(--fail-tint)}
+.metric-cell.unknown{border-color:var(--unknown);background:var(--hover)}
 .metric-cell .mc-label{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:3px}
 .metric-cell .mc-value{font-size:18px;font-weight:700;font-variant-numeric:tabular-nums}
 .metric-cell .mc-unit{font-size:11px;font-weight:400;color:var(--muted);margin-left:2px}
@@ -129,18 +159,18 @@ tr:hover{background:#f8f9fa}
 .glossary summary::-webkit-details-marker{display:none}
 .glossary summary::before{content:"▶";font-size:10px;transition:transform .15s;color:var(--muted)}
 .glossary[open] summary::before{transform:rotate(90deg)}
-.glossary summary:hover{background:#f8f9fa}
+.glossary summary:hover{background:var(--hover)}
 .glossary-content{padding:0 18px 18px;font-size:13px;line-height:1.6;color:var(--text)}
-.glossary-content h4{font-size:13px;margin-top:16px;margin-bottom:8px;font-weight:700;border-bottom:1px solid #e9ecef;padding-bottom:4px}
+.glossary-content h4{font-size:13px;margin-top:16px;margin-bottom:8px;font-weight:700;border-bottom:1px solid var(--border);padding-bottom:4px}
 .glossary-content h4:first-child{margin-top:0}
-.glossary-content .gdef{margin-bottom:10px;padding-left:10px;border-left:2px solid #e9ecef}
+.glossary-content .gdef{margin-bottom:10px;padding-left:10px;border-left:2px solid var(--border)}
 .glossary-content .gdef-name{font-weight:700;color:#1a1a2e}
 .glossary-content .gdef-meta{font-size:11px;color:var(--muted);margin-top:1px}
-.glossary-content code{background:#f1f3f5;padding:1px 5px;border-radius:3px;font-size:12px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+.glossary-content code{background:var(--hover);padding:1px 5px;border-radius:3px;font-size:12px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
 .glossary-content table.grade-table{font-size:12px;margin:6px 0 10px;border-collapse:collapse}
 .glossary-content table.grade-table td{padding:3px 10px 3px 0}
 .glossary-content table.grade-table td:first-child{font-weight:700;font-family:ui-monospace,monospace;width:48px}
-.glossary-content .caveat{background:#fffbeb;border-left:3px solid var(--warn);padding:10px 14px;border-radius:4px;margin:12px 0;font-size:12px}
+.glossary-content .caveat{background:var(--warn-tint);border-left:3px solid var(--warn);padding:10px 14px;border-radius:4px;margin:12px 0;font-size:12px}
 .glossary-content .caveat strong{display:block;margin-bottom:4px}
 .glossary-content ul{margin-left:18px;margin-bottom:8px}
 
@@ -148,7 +178,7 @@ tr:hover{background:#f8f9fa}
   box-shadow:0 1px 3px rgba(0,0,0,.06);margin-bottom:var(--gap)}
 .dist-card h3{font-size:13px;font-weight:600;margin-bottom:10px;display:flex;justify-content:space-between;align-items:center;gap:8px}
 .dist-card h3 .note{font-size:11px;color:var(--muted);font-weight:400}
-.dist-card select{font-size:11px;padding:3px 6px;border:1px solid #e1e4e8;border-radius:4px;background:#fff}
+.dist-card select{font-size:11px;padding:3px 6px;border:1px solid var(--border);border-radius:4px;background:var(--card)}
 .dist-row{display:grid;grid-template-columns:120px 1fr;align-items:center;gap:8px;margin-bottom:4px}
 .dist-row .lbl{font-size:11px;color:var(--muted);font-weight:600;text-align:right;padding-right:6px;font-variant-numeric:tabular-nums}
 .dist-row .ridge{position:relative;height:48px}
@@ -157,13 +187,13 @@ tr:hover{background:#f8f9fa}
 .dist-axis .ticks{display:flex;justify-content:space-between}
 .heatmap-card h3{font-size:13px;font-weight:600;margin-bottom:10px;display:flex;justify-content:space-between;align-items:center;gap:8px}
 .heatmap-card h3 .note{font-size:11px;color:var(--muted);font-weight:400}
-.heatmap-card select{font-size:11px;padding:3px 6px;border:1px solid #e1e4e8;border-radius:4px;background:#fff}
+.heatmap-card select{font-size:11px;padding:3px 6px;border:1px solid var(--border);border-radius:4px;background:var(--card)}
 .heatmap-wrap{overflow-x:auto}
 .heatmap-grid{display:grid;grid-template-columns:36px repeat(24, 36px);grid-auto-rows:26px;gap:2px;line-height:1}
 .heatmap-cell{padding:0;border-radius:2px;overflow:hidden;
   font-size:9px;color:rgba(0,0,0,0.65);font-variant-numeric:tabular-nums;cursor:default;
   white-space:nowrap;display:flex;align-items:center;justify-content:center}
-.heatmap-cell.empty{background:#f1f3f5;color:transparent}
+.heatmap-cell.empty{background:var(--hover);color:transparent}
 .heatmap-day-label{display:flex;align-items:center;justify-content:flex-end;padding-right:6px;font-size:10px;color:var(--muted);font-weight:600;text-transform:uppercase}
 .heatmap-hour-axis{display:flex;align-items:center;justify-content:center;font-size:9px;color:var(--muted)}
 .heatmap-legend{display:flex;align-items:center;gap:6px;margin-top:10px;font-size:10px;color:var(--muted)}
@@ -175,19 +205,19 @@ tr:hover{background:#f8f9fa}
 .assistant-card .ai-narrative{font-size:14px;line-height:1.5;margin-bottom:14px;color:var(--text)}
 .assistant-card .ai-section-label{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px;font-weight:600}
 .assistant-card .ai-anomalies{list-style:none;margin:0 0 14px 0;padding:0}
-.assistant-card .ai-anomalies li{padding:6px 0;border-bottom:1px solid #f1f3f5;font-size:13px}
+.assistant-card .ai-anomalies li{padding:6px 0;border-bottom:1px solid var(--border);font-size:13px}
 .assistant-card .ai-anomalies li:last-child{border-bottom:none}
 .assistant-card .ai-anomalies .a-ts{font-family:ui-monospace,"SF Mono",monospace;font-size:11px;color:var(--muted);margin-right:8px}
 .assistant-card .ai-anomalies .a-hyp{display:block;color:var(--muted);font-size:12px;margin-top:2px}
 .assistant-card .ai-recs{margin:0 0 14px 18px;font-size:13px;line-height:1.6}
-.assistant-card .ai-ask{display:flex;gap:8px;margin-top:12px;border-top:1px solid #f1f3f5;padding-top:12px}
-.assistant-card .ai-ask input{flex:1;padding:8px 10px;border:1px solid #e1e4e8;border-radius:6px;font-size:13px;font-family:inherit}
+.assistant-card .ai-ask{display:flex;gap:8px;margin-top:12px;border-top:1px solid var(--border);padding-top:12px}
+.assistant-card .ai-ask input{flex:1;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;font-family:inherit}
 .assistant-card .ai-ask button{padding:8px 14px;background:#6366f1;color:#fff;border:none;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer}
 .assistant-card .ai-ask button:hover{background:#4f46e5}
 .assistant-card .ai-ask button:disabled{background:#a5a5a5;cursor:wait}
 .assistant-card .ai-empty{color:var(--muted);font-style:italic;font-size:13px}
 .assistant-card .ai-error{color:var(--fail);font-size:13px;background:#fef2f2;border-left:3px solid var(--fail);padding:8px 12px;border-radius:4px}
-.assistant-card .ai-refresh{background:none;border:1px solid #e1e4e8;color:var(--muted);font-size:11px;padding:4px 10px;border-radius:4px;cursor:pointer}
+.assistant-card .ai-refresh{background:none;border:1px solid var(--border);color:var(--muted);font-size:11px;padding:4px 10px;border-radius:4px;cursor:pointer}
 .assistant-card .ai-refresh:hover{border-color:#6366f1;color:#6366f1}
 footer{text-align:center;color:var(--muted);font-size:11px;padding:10px}
 @media (max-width:768px){
@@ -233,6 +263,9 @@ footer{text-align:center;color:var(--muted);font-size:11px;padding:10px}
         </select>
       </div>
       <div class="refresh-status"><span class="dot" id="status-dot"></span><span id="status-text">loading…</span></div>
+      <button id="theme-toggle" class="theme-toggle" title="Toggle theme" aria-label="Toggle theme">
+        <span class="theme-toggle-icon">🌙</span>
+      </button>
     </div>
   </header>
 
@@ -367,7 +400,7 @@ footer{text-align:center;color:var(--muted);font-size:11px;padding:10px}
         <li>Delete it: <code>rm logs/smoke-test.*</code></li>
       </ul>
       <p>You <em>can</em> however use a single bench run as a real smoke test any time — e.g. on a fresh machine, after editing the script, or to sanity-check a new connection before starting an overnight monitor:</p>
-      <pre style="background:#f1f3f5;padding:10px;border-radius:4px;font-size:12px;overflow-x:auto;font-family:ui-monospace,monospace">./bench.sh smoke-test
+      <pre style="background:var(--hover);padding:10px;border-radius:4px;font-size:12px;overflow-x:auto;font-family:ui-monospace,monospace">./bench.sh smoke-test
 cat logs/smoke-test.jsonl | python3 -m json.tool</pre>
       <p><strong>Pass</strong> = the JSON line has all five workload verdicts populated, <code>throughput.down_mbps</code> and <code>up_mbps</code> are numbers (not <code>null</code>), and <code>bufferbloat.grade</code> is a letter. That means every probe ran end-to-end and parsed correctly.<br>
       <strong>Fail</strong> = any of those fields is <code>null</code>. The script printed phase headers <code>[1/5]</code>…<code>[5/5]</code> to stderr — whichever phase didn't produce data is your culprit. Common causes: <code>speedtest</code> not installed, ping target unreachable, network down.</p>
@@ -606,7 +639,7 @@ function renderIspComparison(runs) {
     ).join(' &nbsp; ');
 
     return `
-      <div style="border:1px solid #e6e6e6;border-radius:6px;padding:14px">
+      <div style="border:1px solid var(--border);border-radius:6px;padding:14px">
         <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px">
           <div style="font-size:18px;font-weight:700;text-transform:uppercase">${escape(isp)}</div>
           <div style="font-size:11px;color:var(--muted)">${arr.length} runs</div>
@@ -823,6 +856,22 @@ const gradeBandsPlugin = {
   }
 };
 Chart.register(gradeBandsPlugin);
+
+// Theme-aware Chart.js defaults — read CSS vars at refresh time so ticks/grids
+// match the current theme. Called once on first render and after a theme flip.
+function applyChartTheme() {
+  const css = getComputedStyle(document.documentElement);
+  const text = css.getPropertyValue('--text').trim() || '#1f2328';
+  const muted = css.getPropertyValue('--muted').trim() || '#6c757d';
+  const border = css.getPropertyValue('--border').trim() || '#e6e6e6';
+  Chart.defaults.color = muted;
+  Chart.defaults.borderColor = border;
+  Chart.defaults.scale.grid.color = border;
+  Chart.defaults.scale.ticks.color = muted;
+  Chart.defaults.plugins.legend.labels.color = text;
+  // Refresh all existing charts so they pick up the new colors
+  for (const id of Object.keys(state?.charts || {})) state.charts[id].update('none');
+}
 
 function ensureChart(id, type, scales, extraPlugins) {
   if (state.charts[id]) return state.charts[id];
@@ -1071,6 +1120,21 @@ document.getElementById('heatmap-metric').addEventListener('change', (e) => {
 });
 document.getElementById('dist-metric').addEventListener('change', (e) => {
   state.distMetric = e.target.value; renderRidgelines(selectedRuns());
+});
+
+// Theme toggle
+function applyTheme(t) {
+  document.documentElement.setAttribute('data-theme', t);
+  const btn = document.getElementById('theme-toggle');
+  if (btn) btn.querySelector('.theme-toggle-icon').textContent = t === 'dark' ? '☀️' : '🌙';
+  try { localStorage.setItem('ispmon.theme', t); } catch(e) {}
+  applyChartTheme();
+}
+// Initialize button icon and Chart.js defaults for the theme applied pre-paint
+applyTheme(document.documentElement.getAttribute('data-theme') || 'dark');
+document.getElementById('theme-toggle').addEventListener('click', () => {
+  const cur = document.documentElement.getAttribute('data-theme');
+  applyTheme(cur === 'dark' ? 'light' : 'dark');
 });
 
 function restartTimer() {
